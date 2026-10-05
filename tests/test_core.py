@@ -62,6 +62,9 @@ def test_agent_runs(name):
 
 
 def test_run_writes_results(tmp_path):
-    main("dqn_eps10", 3, 500, D=1, size=6, root=str(tmp_path))
-    d = json.load(open(tmp_path / "g6_d1" / "dqn_eps10_s3.json"))
-    assert d["agent"] == "dqn_eps10" and d["steps"] == 500 and d["episodes"]
+    main("dqn", 3, 500, D=1, size=6, root=str(tmp_path))
+    d = json.load(open(tmp_path / "g6_d1" / "dqn_s3.json"))
+    assert d["agent"] == "dqn" and d["steps"] == 500 and d["eps_floor"] == 0.02 and d["episodes"]
+    main("dqn", 3, 500, D=1, size=6, root=str(tmp_path), eps_floor=0.1)
+    d = json.load(open(tmp_path / "g6_d1" / "dqn_eps0.1_s3.json"))
+    assert d["agent"] == "dqn" and d["eps_floor"] == 0.1

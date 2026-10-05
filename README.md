@@ -44,6 +44,7 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
 - 4th/5th run args: distractor channels, grid size (results/d{D} for 7x7, results/g{size}_d{D} otherwise).
 - `nec_refresh`: re-embeds all DND keys with the current encoder every 1000 steps (not in paper).
 - `nec_bonus`: density bonus beta*log(dbar_a / min_b dbar_b) when acting (not in paper).
-- suffix `_eps10`: epsilon floor 0.1 instead of 0.02.
+- `--eps-floor F`: final epsilon (default 0.02). A non-default floor is recorded as `eps_floor` in the JSON,
+  tagged in the filename (`nec_eps0.1_s1.json`) and in the plot label.
 - NEC runs log per-action DND diagnostics (appends, exact updates, evictions, value stats) every 6k steps.
 - `snake-peek <json...>`: per-seed curves in 6k-step bins + per-action write shares.

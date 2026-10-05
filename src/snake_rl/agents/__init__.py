@@ -2,7 +2,6 @@
 
 To add an agent, implement the `Agent` interface (see base.py) in a new module and
 register it in AGENTS (and in plot.LABELS for a nicer legend name).
-Any name may be given the suffix `_eps10` at run time to raise the epsilon floor to 0.1.
 """
 from snake_rl.agents.base import Agent
 from snake_rl.agents.dqn import DQNAgent
@@ -23,10 +22,9 @@ AGENTS = {
 
 
 def make_agent(name, env, rng) -> Agent:
-    base = name.removesuffix("_eps10")
-    if base not in AGENTS:
+    if name not in AGENTS:
         raise ValueError(f"unknown agent {name!r}; choose from {sorted(AGENTS)}")
-    return AGENTS[base](env, rng)
+    return AGENTS[name](env, rng)
 
 
 __all__ = ["Agent", "AGENTS", "make_agent", "DQNAgent", "NECAgent"]

@@ -12,12 +12,18 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from snake_rl.run import EPS_FLOOR
+
 # Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
+# Runs are grouped by (agent, eps_floor); a non-default floor is appended to the label.
 LABELS = {"dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)",
           "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
-          "nec_refresh": "NEC + key refresh",
-          "dqn_eps10": "DQN, eps floor 0.1", "nec_eps10": "NEC, eps floor 0.1",
-          "nec_bonus": "NEC + density bonus"}
+          "nec_refresh": "NEC + key refresh", "nec_bonus": "NEC + density bonus"}
+
+
+def label(agent, eps_floor):
+    name = LABELS.get(agent, agent)
+    return name if eps_floor == EPS_FLOOR else f"{name}, eps floor {eps_floor:g}"
 
 
 def curve(episodes, edges, rate=False):
@@ -46,7 +52,8 @@ def main(DIR="results/d0", out_dir="figures"):
     for f in files:
         d = json.load(open(f))
         if d["steps"] == STEPS:
-            data.setdefault(d["agent"], []).append(
+            key = (d["agent"], d.get("eps_floor", EPS_FLOOR))
+            data.setdefault(key, []).append(
                 (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))
         else:
             print(f"skipping {f}: {d['steps']} steps != {STEPS}")
@@ -54,18 +61,19 @@ def main(DIR="results/d0", out_dir="figures"):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
     x = edges[1:] / 1000
     tables = {0: [], 1: []}
-    for name in [n for n in LABELS if n in data] + sorted(set(data) - set(LABELS)):
-        label = LABELS.get(name, name)
+    order = list(LABELS)
+    for key in sorted(data, key=lambda k: (order.index(k[0]) if k[0] in LABELS else len(order), k)):
+        lab = label(*key)
         for k, ax in enumerate(axes):
-            C = np.stack([run[k] for run in data[name]])
+            C = np.stack([run[k] for run in data[key]])
             mu, se = np.nanmean(C, 0), np.nanstd(C, 0) / np.sqrt(len(C))
-            ax.plot(x, mu, label=f"{label} (n={len(C)})")
+            ax.plot(x, mu, label=f"{lab} (n={len(C)})")
             ax.fill_between(x, mu - se, mu + se, alpha=0.2)
             marks = []
             for lo, hi in [(0, STEPS // 8), (STEPS // 8, STEPS // 4), (STEPS // 4, STEPS // 2), (STEPS // 2, STEPS)]:
                 per_seed = np.nanmean(C[:, (edges[1:] > lo) & (edges[1:] <= hi)], 1)
                 marks.append((per_seed.mean(), per_seed.std() / np.sqrt(len(per_seed))))
-            tables[k].append((label, marks, np.mean([r[2] for r in data[name]])))
+            tables[k].append((lab, marks, np.mean([r[2] for r in data[key]])))
     axes[0].set_ylabel("fruit eaten per episode")
     axes[1].set_ylabel("fruit eaten per 1000 steps")
     for ax in axes:
@@ -78,11 +86,12 @@ def main(DIR="results/d0", out_dir="figures"):
     os.makedirs(out_dir, exist_ok=True)
     fig.savefig(f"{out_dir}/learning_curves_{tag}.png", dpi=150)
 
+    w0 = max(30, *(len(lab) for lab, _, _ in tables[0]))
     for k, title in [(0, "fruit / episode"), (1, "fruit / 1000 steps")]:
         print(f"\n{title}")
-        print(f"{'agent':30s} {'1st 1/8':>12} {'2nd 1/8':>12} {'2nd 1/4':>12} {'2nd 1/2':>12} {'wall s':>7}")
+        print(f"{'agent':{w0}s} {'1st 1/8':>12} {'2nd 1/8':>12} {'2nd 1/4':>12} {'2nd 1/2':>12} {'wall s':>7}")
         for lab, m, w in tables[k]:
-            print(f"{lab:30s} " + " ".join(f"{a:6.2f}±{b:4.2f}" for a, b in m) + f" {w:7.0f}")
+            print(f"{lab:{w0}s} " + " ".join(f"{a:6.2f}±{b:4.2f}" for a, b in m) + f" {w:7.0f}")
 
 
 def cli():

@@ -24,7 +24,7 @@ Sweeps are plain shell loops over `snake-run`. Their stdout goes in `logs/`, and
 
 ## Architecture
 
-- **Adding an agent:** write a class that satisfies the `Agent` protocol in `agents/base.py` (`act(obs, eps, t)` and `observe(obs, a, r, next_obs, term, trunc, t)`, plus an optional `diagnostics()`). Register a factory `(env, rng) -> agent` in `AGENTS` in `agents/__init__.py`. Variants such as `nec_refresh` are just constructor flags in the registry, not subclasses. The `_eps10` suffix is handled generically: `make_agent` strips it, and `run.py` raises the epsilon floor. `plot.LABELS` sets legend names and plotting order. Unlisted agents are still plotted, under their raw name. `tests/test_core.py::test_agent_runs` automatically smoke-tests every registered agent.
+- **Adding an agent:** write a class that satisfies the `Agent` protocol in `agents/base.py` (`act(obs, eps, t)` and `observe(obs, a, r, next_obs, term, trunc, t)`, plus an optional `diagnostics()`). Register a factory `(env, rng) -> agent` in `AGENTS` in `agents/__init__.py`. Variants such as `nec_refresh` are just constructor flags in the registry, not subclasses. Run settings that are not part of the agent itself (currently `--eps-floor`) belong in `run.py`, not in the agent name. `run.py` stores them in the JSON, and `run_name` tags them in the filename. `plot.py` groups runs by `(agent, eps_floor)`. `plot.LABELS` sets legend names and plotting order. Unlisted agents are still plotted, under their raw name. `tests/test_core.py::test_agent_runs` automatically smoke-tests every registered agent.
 - `run.py` owns the training loop. It owns the epsilon schedule (1 → floor over 5k steps), the RNG seeding (agent rng = `seed`, env rng = `seed + 1000`), episode logging as `(t, score)`, and `diagnostics()` every 6000 steps. Exploration happens inside `agent.act`, so the order in which an agent draws from `rng` determines reproducibility.
 - `nn.py`: `MLP.backward` uses the activations cached by the most recent `forward`, so never call `forward` again between a forward and its backward. NEC's `act` caches the embedding in `self._h` for `observe`, so those two calls must stay paired.
 - `returns.py`: `NStep` produces `(payload, G, boot_obs, disc)` tuples, and every agent forms its target as `G + disc * max Q(boot_obs)`. `disc=0` only on true termination. Truncation still bootstraps.
@@ -35,7 +35,7 @@ Sweeps are plain shell loops over `snake-run`. Their stdout goes in `logs/`, and
   - `refresh_every` stores the raw observations behind each key so that all keys can be re-embedded.
   - `bonus_beta` changes only action selection.
 - `env.py`: the observation is flattened `(3 + D) × n × n` binary channels (head, body, food, then D channels of i.i.d. noise resampled every step). Actions are relative (straight, right, left). An episode is truncated after `2·n²` steps without eating.
-- Results JSON carries `agent`, `seed`, `steps`, `distractors`, `size`, `episodes`, `diagnostics`, and `wallclock_s`. The output directory is `results/d{D}` for 7×7 grids, otherwise `results/g{size}_d{D}`. Older JSONs in `results/d0` and `results/d4` lack `distractors` and `size`.
+- Results JSON carries `agent`, `seed`, `steps`, `distractors`, `size`, `eps_floor`, `episodes`, `diagnostics`, and `wallclock_s`. The output directory is `results/d{D}` for 7×7 grids, otherwise `results/g{size}_d{D}`. Older JSONs may lack `distractors`, `size`, or `eps_floor`. Readers fall back to 0, 7, and 0.02 respectively.
 
 ## Gotchas
 
