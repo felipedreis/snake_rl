@@ -1,0 +1,97 @@
+"""Learning curves (mean +- s.e. over seeds) and an early-regime table.
+
+usage: snake-plot [results_dir] [--out figures]
+"""
+import argparse
+import glob
+import json
+import os
+
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+# Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
+LABELS = {"dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)",
+          "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
+          "nec_refresh": "NEC + key refresh",
+          "dqn_eps10": "DQN, eps floor 0.1", "nec_eps10": "NEC, eps floor 0.1",
+          "nec_bonus": "NEC + density bonus"}
+
+
+def curve(episodes, edges, rate=False):
+    """Per-episode fruit (default) or fruit per 1000 env steps (rate=True), binned by episode end."""
+    e = np.array(episodes)
+    BIN = edges[1] - edges[0]
+    out = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        m = (e[:, 0] > lo) & (e[:, 0] <= hi)
+        if rate:
+            out.append(e[m, 1].sum() * 1000.0 / BIN)
+        else:
+            out.append(e[m, 1].mean() if m.any() else np.nan)
+    return np.array(out)
+
+
+def main(DIR="results/d0", out_dir="figures"):
+    files = sorted(glob.glob(f"{DIR}/*.json"))
+    if not files:
+        raise SystemExit(f"no results in {DIR}")
+    first = json.load(open(files[0]))
+    STEPS, size = first["steps"], first.get("size", 7)
+    edges = np.arange(0, STEPS + 1, STEPS // 20)
+
+    data = {}
+    for f in files:
+        d = json.load(open(f))
+        if d["steps"] == STEPS:
+            data.setdefault(d["agent"], []).append(
+                (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))
+        else:
+            print(f"skipping {f}: {d['steps']} steps != {STEPS}")
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    x = edges[1:] / 1000
+    tables = {0: [], 1: []}
+    for name in [n for n in LABELS if n in data] + sorted(set(data) - set(LABELS)):
+        label = LABELS.get(name, name)
+        for k, ax in enumerate(axes):
+            C = np.stack([run[k] for run in data[name]])
+            mu, se = np.nanmean(C, 0), np.nanstd(C, 0) / np.sqrt(len(C))
+            ax.plot(x, mu, label=f"{label} (n={len(C)})")
+            ax.fill_between(x, mu - se, mu + se, alpha=0.2)
+            marks = []
+            for lo, hi in [(0, STEPS // 8), (STEPS // 8, STEPS // 4), (STEPS // 4, STEPS // 2), (STEPS // 2, STEPS)]:
+                per_seed = np.nanmean(C[:, (edges[1:] > lo) & (edges[1:] <= hi)], 1)
+                marks.append((per_seed.mean(), per_seed.std() / np.sqrt(len(per_seed))))
+            tables[k].append((label, marks, np.mean([r[2] for r in data[name]])))
+    axes[0].set_ylabel("fruit eaten per episode")
+    axes[1].set_ylabel("fruit eaten per 1000 steps")
+    for ax in axes:
+        ax.set_xlabel("environment steps (thousands)")
+        ax.grid(alpha=0.3)
+    axes[0].legend(fontsize=8)
+    tag = os.path.basename(os.path.normpath(DIR))
+    fig.suptitle(f"Snake {size}x{size}, {tag}: NEC ablation ladder (mean +- s.e. over seeds)")
+    fig.tight_layout()
+    os.makedirs(out_dir, exist_ok=True)
+    fig.savefig(f"{out_dir}/learning_curves_{tag}.png", dpi=150)
+
+    for k, title in [(0, "fruit / episode"), (1, "fruit / 1000 steps")]:
+        print(f"\n{title}")
+        print(f"{'agent':30s} {'1st 1/8':>12} {'2nd 1/8':>12} {'2nd 1/4':>12} {'2nd 1/2':>12} {'wall s':>7}")
+        for lab, m, w in tables[k]:
+            print(f"{lab:30s} " + " ".join(f"{a:6.2f}±{b:4.2f}" for a, b in m) + f" {w:7.0f}")
+
+
+def cli():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("dir", nargs="?", default="results/d0")
+    ap.add_argument("--out", default="figures", help="where to write the png")
+    a = ap.parse_args()
+    main(a.dir, a.out)
+
+
+if __name__ == "__main__":
+    cli()

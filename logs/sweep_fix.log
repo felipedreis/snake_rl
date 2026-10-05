@@ -1,0 +1,6 @@
+dqn_eps10 1 566 eps, 19s
+nec_eps10 1 847 eps, 355s
+nec_bonus 1 562 eps, 361s
+dqn_eps10 2 548 eps, 19s
+nec_eps10 2 639 eps, 341s
+nec_bonus 2 530 eps, 364s

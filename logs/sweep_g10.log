@@ -1,0 +1,8 @@
+dqn 1 475 eps, 32s
+ec_frozen 1 456 eps, 116s
+nec 1 434 eps, 627s
+dqn 2 475 eps, 34s
+ec_frozen 2 522 eps, 121s
+nec 2 435 eps, 645s
+dqn 3 474 eps, 33s
+ec_frozen 3 560 eps, 131s
