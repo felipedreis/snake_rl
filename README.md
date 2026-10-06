@@ -27,12 +27,13 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
       env.py            Snake environment
       nn.py             MLP with manual backprop, Adam
       returns.py        N-step return accumulator
-      agents/           base.py (Agent interface), dqn.py, nec.py; __init__.py holds the registry
+      agents/           base.py (Agent interface), dqn.py, nec.py, mfec.py; __init__.py holds the registry
       run.py plot.py peek.py
     tests/              gradient checks, N-step targets, smoke runs of every agent
     results/            per-run JSON, results/d{D} (7x7) or results/g{size}_d{D}
     figures/            learning-curve PNGs and saved tables
     logs/               stdout of past sweeps
+    docs/experiments/   pre-registered experiments: protocol, run script, analysis, report
 
 New agents: implement `act`/`observe` (see `agents/base.py`), add a factory to `AGENTS` in
 `agents/__init__.py`, and optionally a legend name in `plot.LABELS`.
@@ -48,3 +49,10 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
   tagged in the filename (`nec_eps0.1_s1.json`) and in the plot label.
 - NEC runs log per-action DND diagnostics (appends, exact updates, evictions, value stats) every 6k steps.
 - `snake-peek <json...>`: per-seed curves in 6k-step bins + per-action write shares.
+- `mfec`: Model-Free Episodic Control (Blundell et al., 2016). Random Gaussian projection to 64-d keys, one
+  buffer per action, uniform mean over k=11 neighbours (stored value on exact match), and backward Monte Carlo
+  returns written at episode end with a max update. No SGD and no bootstrapping (truncated episodes are not
+  bootstrapped either). Capacity is 2e4 per action, as for the DND (the paper uses 1e6), and run.py's epsilon
+  schedule is used (the paper uses 0.005).
+- `random`: uniform random policy, a reference floor.
+- `docs/experiments/mfec_dqn_nec/`: pre-registered MFEC vs DQN vs NEC comparison (PROTOCOL.md, REPORT.md).

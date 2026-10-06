@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from snake_rl.agents import AGENTS, make_agent
+from snake_rl.agents.mfec import MFECAgent
 from snake_rl.env import Snake
 from snake_rl.nn import MLP
 from snake_rl.returns import NStep
@@ -46,6 +47,25 @@ def test_env_obs_shape_and_death():
         if term:
             break
     assert term and r == -1.0
+
+
+def test_mfec_backward_max_update_and_lookup():
+    ag = MFECAgent(obs_dim=2, n_actions=2, rng=np.random.default_rng(0), key_dim=2, k=2, gamma=0.5)
+    ag.A = np.eye(2)  # keys = observations, so the numbers below are easy to check
+    s0, s1 = np.array([0.0, 0.0]), np.array([1.0, 0.0])
+
+    def episode(steps):  # steps: (obs, action, reward); the last one terminates
+        for i, (o, a, r) in enumerate(steps):
+            ag._h = o @ ag.A
+            ag.observe(o, a, r, None, i == len(steps) - 1, False, i + 1)
+
+    episode([(s0, 0, 0.0), (s1, 0, 2.0)])                   # R = 1.0 at s0, 2.0 at s1
+    assert ag.bufs[0].lookup(s0, 0) == 1.0 and ag.bufs[0].lookup(s1, 0) == 2.0
+    episode([(s0, 0, -4.0)])                                # worse return: the max keeps 1.0
+    episode([(s1, 0, 6.0)])                                 # better return: replaces 2.0
+    assert ag.bufs[0].n == 2 and ag.bufs[0].lookup(s0, 0) == 1.0 and ag.bufs[0].lookup(s1, 0) == 6.0
+    assert ag.bufs[0].lookup(np.array([0.4, 0.0]), 0) == pytest.approx(3.5)  # unseen: mean of k=2
+    assert ag.bufs[1].lookup(s0, 0) == 0.0                  # empty buffer
 
 
 @pytest.mark.parametrize("name", sorted(AGENTS))
