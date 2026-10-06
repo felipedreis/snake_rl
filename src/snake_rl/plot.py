@@ -18,7 +18,9 @@ from snake_rl.run import EPS_FLOOR
 # Runs are grouped by (agent, eps_floor); a non-default floor is appended to the label.
 LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)", "mfec": "MFEC (random projection)",
           "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
-          "nec_refresh": "NEC + key refresh", "nec_bonus": "NEC + density bonus"}
+          "nec_refresh": "NEC + key refresh", "nec_bonus": "NEC + density bonus",
+          "dqn_cnn": "DQN (1-step, CNN)", "dqn_nstep_cnn": "DQN (N-step, CNN)",
+          "ec_frozen_cnn": "Episodic, frozen CNN embedding", "nec_cnn": "NEC (CNN)"}
 
 
 def label(agent, eps_floor):

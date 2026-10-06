@@ -12,7 +12,7 @@ Target: G + disc * max_a Q_target(boot_obs, a), Huber loss, periodic target sync
 N=1 gives standard DQN; N>1 isolates the contribution of N-step returns.
 """
 import numpy as np
-from snake_rl.nn import MLP, Adam
+from snake_rl.nn import MLP, ConvNet, Adam
 from snake_rl.returns import NStep
 
 
@@ -27,19 +27,25 @@ class DQNAgent:
       batch        transitions per training step (minibatch size).
       train_every  do one training step every this many env steps.
       target_every copy the online network into the target network every this many env steps.
+      encoder      "mlp" or "cnn" (the *_cnn agents); obs_shape is the (C, n, n) grid the CNN needs.
     """
 
     def __init__(self, obs_dim, n_actions, rng, N=1, gamma=0.99, hidden=64, lr=5e-4,
-                 replay_cap=50000, batch=32, train_every=4, target_every=1000):
+                 replay_cap=50000, batch=32, train_every=4, target_every=1000, encoder="mlp", obs_shape=None):
         # rng: the only source of randomness (exploration and minibatch sampling), for reproducibility.
         # nA: number of actions.
         self.rng, self.nA = rng, n_actions
+        # encoder="cnn" uses a small ConvNet over the (C, n, n) grid (obs_shape); otherwise an MLP over
+        # the flat observation.
+        if encoder == "cnn":
+            net = lambda: ConvNet(obs_shape, [16, 32], [hidden, n_actions], rng)
+        else:
+            net = lambda: MLP([obs_dim, hidden, hidden, n_actions], rng)
         # q: the "online" Q-network, observation -> one Q-value per action. This is what we train.
-        self.q = MLP([obs_dim, hidden, hidden, n_actions], rng)
         # qt: the "target" network, a lagged copy of q used only to compute targets. If targets came
         # from q itself, every update would also move the target it is chasing, which tends to
         # oscillate or diverge. Freezing it between syncs keeps the target still for a while.
-        self.qt = MLP([obs_dim, hidden, hidden, n_actions], rng)
+        self.q, self.qt = net(), net()
         self.qt.copy_from(self.q)
         # opt: the optimizer that updates q's weights from gradients.
         self.opt = Adam(self.q.params(), lr)

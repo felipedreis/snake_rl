@@ -68,6 +68,96 @@ class MLP:
             p[...] = q
 
 
+class ConvNet:
+    """Small CNN with manual backprop, same interface as MLP (flat batch in, params()/backward()).
+
+    obs_shape = (C, n, n); `convs` lists the output channels of the conv layers (3x3, stride 1,
+    zero 'same' padding, ReLU); the flattened feature map feeds the dense layers `fcs` (ReLU between,
+    linear last). Stride 1 and no pooling because the grids are tiny and positions matter, unlike the
+    paper's Atari frames (8x8/4, 4x4/2, 3x3/1 convolutions on 84x84 images).
+    Convolutions are im2col matmuls, channels-last internally.
+    """
+
+    def __init__(self, obs_shape, convs, fcs, rng, k=3):
+        C, n, _ = obs_shape
+        self.shape, self.k = (n, n, C), k
+        self.W, self.b, cin = [], [], C
+        for cout in convs:
+            self.W.append(rng.normal(0, np.sqrt(2.0 / (k * k * cin)), (k * k * cin, cout)))
+            self.b.append(np.zeros(cout))
+            cin = cout
+        self.n_conv = len(convs)
+        sizes = [cin * n * n] + list(fcs)
+        for i, o in zip(sizes[:-1], sizes[1:]):
+            self.W.append(rng.normal(0, np.sqrt(2.0 / i), (i, o)))
+            self.b.append(np.zeros(o))
+
+    def params(self):
+        return self.W + self.b
+
+    def _cols(self, x):
+        k, p = self.k, self.k // 2
+        B, H, W, C = x.shape
+        xp = np.pad(x, ((0, 0), (p, p), (p, p), (0, 0)))
+        cols = np.empty((B, H, W, k, k, C))
+        for i in range(k):
+            for j in range(k):
+                cols[:, :, :, i, j, :] = xp[:, i:i + H, j:j + W, :]
+        return cols.reshape(B * H * W, k * k * C)
+
+    def forward(self, x):
+        n, _, C = self.shape
+        B = x.shape[0]
+        h = x.reshape(B, C, n, n).transpose(0, 2, 3, 1)  # channels last
+        self.cache, self.cols = [], []
+        L = len(self.W)
+        for l in range(self.n_conv):
+            cols = self._cols(h)
+            self.cols.append(cols)
+            self.cache.append(h)
+            h = np.maximum(cols @ self.W[l] + self.b[l], 0.0).reshape(B, n, n, -1)
+        h = h.reshape(B, -1)
+        for l in range(self.n_conv, L):
+            self.cache.append(h)
+            h = h @ self.W[l] + self.b[l]
+            if l < L - 1:
+                h = np.maximum(h, 0.0)
+        self.out = h
+        return h
+
+    def backward(self, g):
+        """g = dL/d(output) for the last forward() call. Returns grads in params() order."""
+        n, _, _ = self.shape
+        k, p, L = self.k, self.k // 2, len(self.W)
+        B = g.shape[0]
+        gW, gb = [None] * L, [None] * L
+        for l in reversed(range(self.n_conv, L)):
+            if l < L - 1:
+                g = g * (self.cache[l + 1] > 0)
+            gW[l] = self.cache[l].T @ g
+            gb[l] = g.sum(0)
+            g = g @ self.W[l].T
+        g = g.reshape(B * n * n, -1)
+        for l in reversed(range(self.n_conv)):
+            post = self.cache[l + 1] if l + 1 < self.n_conv else self.cache[self.n_conv].reshape(B, n, n, -1)
+            g = g * (post.reshape(B * n * n, -1) > 0)
+            gW[l] = self.cols[l].T @ g
+            gb[l] = g.sum(0)
+            if l == 0:
+                break  # no gradient w.r.t. the observation is needed
+            gc = (g @ self.W[l].T).reshape(B, n, n, k, k, -1)
+            gx = np.zeros((B, n + 2 * p, n + 2 * p, gc.shape[-1]))
+            for i in range(k):
+                for j in range(k):
+                    gx[:, i:i + n, j:j + n, :] += gc[:, :, :, i, j, :]
+            g = gx[:, p:p + n, p:p + n, :].reshape(B * n * n, -1)
+        return gW + gb
+
+    def copy_from(self, other):
+        for p, q in zip(self.params(), other.params()):
+            p[...] = q
+
+
 class Adam:
     """Adam optimizer (Kingma & Ba, 2015): gradient descent with a per-parameter step size.
 

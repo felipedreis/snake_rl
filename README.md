@@ -38,7 +38,7 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 New agents: implement `act`/`observe` (see `agents/base.py`), add a factory to `AGENTS` in
 `agents/__init__.py`, and optionally a legend name in `plot.LABELS`.
 
-Known differences from the paper: MLP instead of CNN, exact brute-force kNN instead of
+Known differences from the paper: MLP encoder by default (the `*_cnn` agents use a small CNN, see below, with 3x3 stride-1 convs rather than the Atari 8x8/4,4x4/2,3x3/1 stack), exact brute-force kNN instead of
 kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per action.
 
 ## Later additions
@@ -56,3 +56,14 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
   schedule is used (the paper uses 0.005).
 - `random`: uniform random policy, a reference floor.
 - `docs/experiments/mfec_dqn_nec/`: pre-registered MFEC vs DQN vs NEC comparison (PROTOCOL.md, REPORT.md).
+
+## Richer env and CNN agents
+- `--map {open,pillars,walls,rooms}`: obstacle layouts (lethal walls, extra observation channel). The free area is always
+  connected and the start is always clear. `open` is the original env, bit-for-bit.
+- `--bonus R`: Nokia-style bonus food worth R points, appearing after every 4 regular foods for 2n steps. The
+  observation has an extra channel holding its remaining lifetime fraction. It grows the snake like normal food.
+  `score` in the results is the points collected (regular 1 + bonus R), so curves are not comparable with bonus-free runs.
+- Output goes to `results/d{D}_{map}_b{R}` (e.g. `results/d0_pillars_b5`); the JSON records `map` and `bonus`.
+- `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`: same agents with `nn.ConvNet` (conv 16, conv 32, FC 64, linear head;
+  hand-written im2col backprop, gradient-checked in tests). CNN runs are ~3-10x slower than their MLP counterparts.
+- `Snake.render()` prints the board as ASCII.
