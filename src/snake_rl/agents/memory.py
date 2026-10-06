@@ -6,23 +6,36 @@ class KeyValueMemory:
     """Storage and brute-force p-NN. Subclasses define their own lookup and write rules."""
 
     def __init__(self, capacity, dim, p, delta, obs_dim=None):
+        # obs[i]: the raw observation that produced keys[i]. Only kept for nec_refresh, so keys can be
+        # recomputed with the current encoder; None otherwise (it costs a lot of memory).
         self.obs = np.zeros((capacity, obs_dim)) if obs_dim else None
+        # Counters for diagnostics(): how writes were handled.
         self.stats = {"appends": 0, "exact_updates": 0, "evictions": 0}
-        self.keys = np.zeros((capacity, dim))
-        self.vals = np.zeros(capacity)
-        self.last_used = np.zeros(capacity, np.int64)
+        self.keys = np.zeros((capacity, dim))       # keys[i]: embedding h of a remembered situation
+        self.vals = np.zeros(capacity)              # vals[i]: its estimated Q-value (observed return)
+        self.last_used = np.zeros(capacity, np.int64)  # env step when row i was last a neighbour; the
+                                                       #   row with the oldest one is evicted when full
+        # n: rows in use. cap: max rows. p: neighbours per lookup.
+        # delta: small constant in the kernel 1/(dist + delta), so an exact match (dist 0) gets a
+        #   large but finite weight instead of dividing by zero.
         self.n, self.cap, self.p, self.delta = 0, capacity, p, delta
 
     def knn(self, H):
-        """Exact p-NN by brute force (the paper uses approximate kd-trees for scale)."""
+        """Exact p-NN by brute force (the paper uses approximate kd-trees for scale).
+
+        H: (batch, dim) query keys. Returns idx (batch, p) row numbers of the nearest keys and
+        their squared distances (batch, p), in no particular order.
+        """
         K = self.keys[: self.n]
+        # All squared distances at once, using ||h - k||^2 = ||h||^2 - 2 h.k + ||k||^2. (batch, n)
         d = (H ** 2).sum(1)[:, None] - 2.0 * H @ K.T + (K ** 2).sum(1)[None, :]
-        d = np.maximum(d, 0.0)
+        d = np.maximum(d, 0.0)  # rounding can make tiny distances slightly negative
         k = min(self.p, self.n)
         if k < self.n:
+            # argpartition finds the k smallest without fully sorting (faster than argsort).
             idx = np.argpartition(d, k - 1, axis=1)[:, :k]
         else:
-            idx = np.broadcast_to(np.arange(self.n), (H.shape[0], self.n))
+            idx = np.broadcast_to(np.arange(self.n), (H.shape[0], self.n))  # fewer than p rows: use all
         return idx, np.take_along_axis(d, idx, 1)
 
     def _insert(self, h, v, t):
