@@ -15,7 +15,10 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 ## Usage
 
     snake-run nec 1 40000 4        # 4th arg: distractor channels -> results/d4/nec_s1.json
+    snake-run nec 1 40000 0 10     # 5th arg: grid size           -> results/g10_d0/nec_s1.json
+    snake-run nec 1 40000 --map rooms --bonus 5   # obstacles + bonus food -> results/d0_rooms_b5/nec_s1.json
     snake-plot results/d0          # -> figures/learning_curves_d0.png + tables on stdout
+    snake-plot results/d0_rooms_b5 # -> figures/learning_curves_d0_rooms_b5.png
     snake-peek results/d0/nec_*.json
     pytest
 
@@ -30,7 +33,7 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
       agents/           base.py (Agent interface), dqn.py, nec.py, mfec.py; __init__.py holds the registry
       run.py plot.py peek.py
     tests/              gradient checks, N-step targets, smoke runs of every agent
-    results/            per-run JSON, results/d{D} (7x7) or results/g{size}_d{D}
+    results/            per-run JSON, results/d{D} (7x7) or results/g{size}_d{D}, plus _{map} / _b{R} if set
     figures/            learning-curve PNGs and saved tables
     logs/               stdout of past sweeps
     docs/experiments/   pre-registered experiments: protocol, run script, analysis, report
@@ -59,7 +62,20 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
 
 ## Richer env and CNN agents
 - `--map {open,pillars,walls,rooms}`: obstacle layouts (lethal walls, extra observation channel). The free area is always
-  connected and the start is always clear. `open` is the original env, bit-for-bit.
+  connected and the start is always clear. `open` is the original env, bit-for-bit. The layouts on the default 7x7 grid
+  (`#` wall, `@` head, `o` body; they scale with the grid size):
+
+      pillars    walls      rooms
+      .......    .......    ...#...
+      .#...#.    #####..    ...#...
+      .......    .......    .......
+      ..o@...    ..o@...    ##o@.##
+      .......    .......    .......
+      .#...#.    ..#####    ...#...
+      .......    .......    ...#...
+
+  Example: `snake-run dqn 1 40000 0 10 --map walls` writes `results/g10_d0_walls/dqn_s1.json`. Map, bonus, grid size and
+  distractors all combine, and each combination gets its own results dir, so `snake-plot` never mixes them.
 - `--bonus R`: Nokia-style bonus food worth R points, appearing after every 4 regular foods for 2n steps. The
   observation has an extra channel holding its remaining lifetime fraction. It grows the snake like normal food.
   `score` in the results is the points collected (regular 1 + bonus R), so curves are not comparable with bonus-free runs.

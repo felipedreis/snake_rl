@@ -13,6 +13,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # once; then use .v
 
 snake-run nec 1 40000                 # agent seed steps [distractors=0] [size=7] [--results DIR]
 snake-run nec_refresh 2 60000 0 10    # -> results/g10_d0/nec_refresh_s2.json
+snake-run nec_cnn 1 40000 --map rooms --bonus 5   # maps: open pillars walls rooms -> results/d0_rooms_b5/
 snake-plot results/d0                 # -> figures/learning_curves_d0.png, tables on stdout
 snake-peek results/g10_d0/nec_*.json  # per-seed 6k-step bins + per-action DND write shares
 
