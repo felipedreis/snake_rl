@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from snake_rl.run import EPS_FLOOR
 
 # Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
-# Runs are grouped by (agent, eps_floor); a non-default floor is appended to the label.
+# Runs are grouped by (agent, eps_floor, eps_decay); non-default exploration settings are appended to the label.
 LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)", "mfec": "MFEC (random projection)",
           "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
           "nec_refresh": "NEC + key refresh", "nec_bonus": "NEC + density bonus",
@@ -23,9 +23,10 @@ LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N
           "ec_frozen_cnn": "Episodic, frozen CNN embedding", "nec_cnn": "NEC (CNN)"}
 
 
-def label(agent, eps_floor):
+def label(agent, eps_floor, eps_decay=None):
     name = LABELS.get(agent, agent)
-    return name if eps_floor == EPS_FLOOR else f"{name}, eps floor {eps_floor:g}"
+    name += "" if eps_floor == EPS_FLOOR else f", eps floor {eps_floor:g}"
+    return name + ("" if eps_decay is None else f", eps decay {eps_decay:,}")
 
 
 def curve(episodes, edges, rate=False):
@@ -54,7 +55,7 @@ def main(DIR="results/d0", out_dir="figures"):
     for f in files:
         d = json.load(open(f))
         if d["steps"] == STEPS:
-            key = (d["agent"], d.get("eps_floor", EPS_FLOOR))
+            key = (d["agent"], d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"))
             data.setdefault(key, []).append(
                 (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))
         else:
@@ -64,7 +65,8 @@ def main(DIR="results/d0", out_dir="figures"):
     x = edges[1:] / 1000
     tables = {0: [], 1: []}
     order = list(LABELS)
-    for key in sorted(data, key=lambda k: (order.index(k[0]) if k[0] in LABELS else len(order), k)):
+    for key in sorted(data, key=lambda k: (order.index(k[0]) if k[0] in LABELS else len(order), k[0], k[1],
+                                         -1 if k[2] is None else k[2])):
         lab = label(*key)
         for k, ax in enumerate(axes):
             C = np.stack([run[k] for run in data[key]])

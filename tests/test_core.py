@@ -8,7 +8,7 @@ from snake_rl.agents.mfec import MFECAgent
 from snake_rl.env import Snake
 from snake_rl.nn import MLP
 from snake_rl.returns import NStep
-from snake_rl.run import main
+from snake_rl.run import epsilon, main
 
 
 def test_mlp_backward_matches_finite_differences():
@@ -91,6 +91,15 @@ def test_run_writes_results(tmp_path):
     assert d["agent"] == "dqn" and d["eps_floor"] == 0.1
 
 
+def test_episode_log_splits_bonus_points_and_truncation(tmp_path):
+    main("random", 0, 4000, size=6, root=str(tmp_path), map="rooms", bonus=5)
+    e = np.array(json.load(open(tmp_path / "g6_d0_rooms_b5" / "random_s0.json"))["episodes"])
+    t, score, foods, trunc = e.T
+    bonus = (score - foods) / 5
+    assert e.shape[1] == 4 and np.all(bonus >= 0) and np.allclose(bonus, np.round(bonus))
+    assert set(trunc) <= {0, 1}
+
+
 def test_convnet_backward_matches_finite_differences():
     from snake_rl.nn import ConvNet
     rng = np.random.default_rng(0)
@@ -161,3 +170,28 @@ def test_bonus_food_pays_and_grows():
     env.bonus_pos, env.bonus_left = (3, 4), 5
     _, r, term, _ = env.step(0)
     assert r == 5.0 and not term and env.score == 5 and env.bonus_pos is None and len(env.body) == 3
+
+
+def test_epsilon_schedules():
+    assert [epsilon(t) for t in (0, 2500, 4950, 9999)] == [1.0, 0.5, 0.02, 0.02]  # original schedule
+    assert epsilon(0, 0.1, 250_000) == 1.0 and abs(epsilon(125_000, 0.1, 250_000) - 0.55) < 1e-12
+    assert epsilon(250_000, 0.1, 250_000) == 0.1 == epsilon(10**6, 0.1, 250_000)       # DQN: 1 -> 0.1, then flat
+    assert epsilon(0, 0.005, 0) == 0.005 == epsilon(10**5, 0.005, 0)                   # fixed epsilon
+
+
+def test_eps_decay_is_recorded_and_tagged(tmp_path):
+    main("random", 0, 300, size=6, root=str(tmp_path), eps_floor=0.005, eps_decay=0)
+    d = json.load(open(tmp_path / "g6_d0" / "random_eps0.005_epsd0_s0.json"))
+    assert d["eps_floor"] == 0.005 and d["eps_decay"] == 0
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
+def test_evaluation_does_not_change_training(name, tmp_path):
+    kw = dict(size=6, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
+    main(name, 4, 1500, root=str(tmp_path / "eval"), eval_every=500, eval_episodes=2, **kw)
+    stem = f"g6_d0_rooms_b5/{name}_eps0.05_epsd600_s4.json"
+    a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "eval"))
+    assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
+    assert [t for t, _ in b["evaluations"]] == [500, 1000, 1500]
+    assert all(len(eps) == 2 and all(len(e) == 4 for e in eps) for _, eps in b["evaluations"])
