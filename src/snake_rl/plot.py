@@ -16,7 +16,7 @@ from snake_rl.run import EPS_FLOOR
 
 # Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
 # Runs are grouped by (agent, eps_floor); a non-default floor is appended to the label.
-LABELS = {"dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)",
+LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)", "mfec": "MFEC (random projection)",
           "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
           "nec_refresh": "NEC + key refresh", "nec_bonus": "NEC + density bonus"}
 

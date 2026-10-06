@@ -1,0 +1,240 @@
+"""Analysis for the MFEC vs DQN vs NEC experiment, exactly as specified in PROTOCOL.md section 8.
+
+usage (from the repo root):
+  .venv/bin/python docs/experiments/mfec_dqn_nec/analyze.py [--root results/exp_mfec] [--seeds 101-110]
+                                                           [--out docs/experiments/mfec_dqn_nec]
+Writes <out>/per_run.csv, <out>/results.md and <out>/learning_curves.png.
+"""
+import argparse
+import glob
+import itertools
+import json
+import os
+from math import comb
+
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from snake_rl.plot import curve
+from snake_rl.run import EPS_FLOOR
+
+CONFIGS = [("C1", "small, clean (7x7, D=0)", "d0"),
+           ("C2", "small, noisy (7x7, D=4)", "d4"),
+           ("C3", "large, clean (10x10, D=0)", "g10_d0")]
+AGENTS = ["random", "dqn", "nec", "mfec"]
+EARLY = (5000, 10000)
+# (id, config, outcome, A, B): hypothesis "A > B" on that outcome (PROTOCOL.md section 7).
+HYPOTHESES = [("H1a", "C1", "late", "mfec", "dqn"), ("H1b", "C1", "late", "mfec", "nec"),
+              ("H2", "C2", "late", "dqn", "mfec"),
+              ("H3a", "C3", "late", "mfec", "nec"), ("H3b", "C3", "late", "mfec", "dqn"),
+              ("H4a", "C1", "early", "mfec", "dqn"), ("H4b", "C3", "early", "mfec", "dqn")]
+OUTCOMES = {"late": "LATE: score / episode, 2nd half",
+            "early": "EARLY: score / episode, steps 5k-10k",
+            "rate_late": "fruit / 1000 steps, 2nd half (secondary)"}
+# Categorical slots 1-3 of the reference palette; the random floor is a neutral dashed reference line.
+COLORS = {"dqn": "#2a78d6", "nec": "#eb6834", "mfec": "#1baf7a", "random": "#8a8984"}
+NAMES = {"random": "Random", "dqn": "DQN", "nec": "NEC", "mfec": "MFEC"}
+
+
+def window_mean(e, lo, hi):
+    m = (e[:, 0] > lo) & (e[:, 0] <= hi)
+    return e[m, 1].mean() if m.any() else np.nan
+
+
+def load(root, seeds):
+    """{config_id: {agent: [run dict]}} for the default eps floor and the given seeds."""
+    data = {}
+    for cid, _, sub in CONFIGS:
+        data[cid] = {a: [] for a in AGENTS}
+        for f in sorted(glob.glob(f"{root}/{sub}/*.json")):
+            d = json.load(open(f))
+            if d["agent"] in AGENTS and d["seed"] in seeds and d.get("eps_floor", EPS_FLOOR) == EPS_FLOOR:
+                data[cid][d["agent"]].append(d)
+    return data
+
+
+def metrics(d):
+    e, S = np.array(d["episodes"], float), d["steps"]
+    m2 = e[:, 0] > S / 2
+    row = {"seed": d["seed"], "late": window_mean(e, S / 2, S), "early": window_mean(e, *EARLY),
+           "rate_late": e[m2, 1].sum() * 1000.0 / (S / 2), "episodes_late": int(m2.sum()),
+           "exact_hit_share": np.nan, "exact_write_share": np.nan}
+    if d["agent"] == "mfec" and d["diagnostics"]:
+        dg = d["diagnostics"][-1][1].values()
+        lk, hit = sum(v["lookups"] for v in dg), sum(v["exact_hits"] for v in dg)
+        up, ap = sum(v["exact_updates"] for v in dg), sum(v["appends"] for v in dg)
+        row["exact_hit_share"] = hit / lk if lk else np.nan
+        row["exact_write_share"] = up / (up + ap) if up + ap else np.nan
+    return row
+
+
+def perm_test(x, y, max_exact=500_000, n_mc=200_000):
+    """Two-sided permutation test on mean(x) - mean(y). Exact enumeration when feasible."""
+    pooled, n1 = np.concatenate([x, y]), len(x)
+    obs = x.mean() - y.mean()
+    if comb(len(pooled), n1) <= max_exact:
+        idx = np.array(list(itertools.combinations(range(len(pooled)), n1)))
+    else:  # only reached if group sizes grow; documented as a Monte Carlo fallback
+        rng = np.random.default_rng(0)
+        idx = np.array([rng.permutation(len(pooled))[:n1] for _ in range(n_mc)])
+    s1 = pooled[idx].sum(1)
+    diffs = s1 / n1 - (pooled.sum() - s1) / (len(pooled) - n1)
+    return float(np.mean(np.abs(diffs) >= abs(obs) - 1e-12))
+
+
+def boot_ci(x, y=None, n=10_000, seed=0):
+    """95% percentile bootstrap CI of mean(x), or of mean(x) - mean(y)."""
+    rng = np.random.default_rng(seed)
+    bx = x[rng.integers(len(x), size=(n, len(x)))].mean(1)
+    if y is not None:
+        bx = bx - y[rng.integers(len(y), size=(n, len(y)))].mean(1)
+    return np.percentile(bx, [2.5, 97.5])
+
+
+def hedges_g(x, y):
+    n1, n2 = len(x), len(y)
+    sp = np.sqrt(((n1 - 1) * x.var(ddof=1) + (n2 - 1) * y.var(ddof=1)) / (n1 + n2 - 2))
+    return (x.mean() - y.mean()) / sp * (1 - 3 / (4 * (n1 + n2) - 9)) if sp > 0 else np.nan
+
+
+def holm(ps):
+    order, m = np.argsort(ps), len(ps)
+    adj, running = np.empty(m), 0.0
+    for rank, i in enumerate(order):
+        running = max(running, min(1.0, (m - rank) * ps[i]))
+        adj[i] = running
+    return adj
+
+
+def main(root, seeds, out):
+    os.makedirs(out, exist_ok=True)
+    data = load(root, seeds)
+    rows = {(c, a): [metrics(d) for d in runs] for c, by in data.items() for a, runs in by.items()}
+    col = lambda c, a, k: np.array([r[k] for r in rows[(c, a)]], float)
+    md = [f"Generated by analyze.py from `{root}`, seeds {min(seeds)}-{max(seeds)}.\n"]
+
+    # Per-run table
+    keys = ["seed", "late", "early", "rate_late", "episodes_late", "exact_hit_share", "exact_write_share"]
+    with open(f"{out}/per_run.csv", "w") as f:
+        f.write("config,agent," + ",".join(keys) + "\n")
+        for (c, a), rs in rows.items():
+            for r in rs:
+                f.write(f"{c},{a}," + ",".join(f"{r[k]:.4f}" if isinstance(r[k], float) else str(r[k])
+                                               for k in keys) + "\n")
+
+    md.append("## Runs per cell\n\n| config | " + " | ".join(AGENTS) + " |\n|---|" + "---|" * len(AGENTS))
+    for cid, desc, _ in CONFIGS:
+        md.append(f"| {cid} {desc} | " + " | ".join(str(len(rows[(cid, a)])) for a in AGENTS) + " |")
+
+    # Descriptives
+    for k, title in OUTCOMES.items():
+        md.append(f"\n## {title}\n\nmean ± s.d. [95% bootstrap CI of the mean]\n")
+        md.append("| config | " + " | ".join(NAMES[a] for a in AGENTS) + " |\n|---|" + "---|" * len(AGENTS))
+        for cid, desc, _ in CONFIGS:
+            cells = []
+            for a in AGENTS:
+                x = col(cid, a, k)
+                if len(x) == 0 or np.isnan(x).any():
+                    cells.append("n/a")
+                    continue
+                lo, hi = boot_ci(x)
+                cells.append(f"{x.mean():.3f} ± {x.std(ddof=1):.3f} [{lo:.3f}, {hi:.3f}]")
+            md.append(f"| {cid} | " + " | ".join(cells) + " |")
+
+    # Confirmatory tests
+    res = []
+    for hid, cid, k, A, B in HYPOTHESES:
+        x, y = col(cid, A, k), col(cid, B, k)
+        if len(x) < 2 or len(y) < 2:
+            res.append((hid, cid, k, A, B, np.nan, np.nan, (np.nan, np.nan), np.nan, len(x), len(y)))
+            continue
+        res.append((hid, cid, k, A, B, x.mean() - y.mean(), perm_test(x, y), boot_ci(x, y), hedges_g(x, y),
+                    len(x), len(y)))
+    ps = np.array([r[6] for r in res])
+    adj = np.full(len(ps), np.nan)
+    ok = ~np.isnan(ps)
+    adj[ok] = holm(ps[ok])
+    md.append("\n## Confirmatory tests (exact two-sided permutation, Holm-adjusted over 7)\n")
+    md.append("| ID | config | outcome | hypothesis | n | diff (A−B) [95% CI] | Hedges' g | p | p (Holm) | verdict |")
+    md.append("|---|---|---|---|---|---|---|---|---|---|")
+    for (hid, cid, k, A, B, diff, p, ci, g, n1, n2), pa in zip(res, adj):
+        if np.isnan(p):
+            verdict = "not tested"
+        elif pa < 0.05:
+            verdict = "**supported**" if diff > 0 else "**contradicted**"
+        else:
+            verdict = "not supported"
+        md.append(f"| {hid} | {cid} | {k.upper()} | {NAMES[A]} > {NAMES[B]} | {n1}/{n2} | {diff:+.3f} "
+                  f"[{ci[0]:+.3f}, {ci[1]:+.3f}] | {g:.2f} | {p:.2g} | {pa:.2g} | {verdict} |")
+
+    # Exploratory pairwise comparisons
+    md.append("\n## Exploratory pairwise comparisons (uncorrected p; descriptive only)\n")
+    md.append("| config | outcome | A vs B | diff (A−B) [95% CI] | Hedges' g | p (uncorrected) |")
+    md.append("|---|---|---|---|---|---|")
+    for cid, _, _ in CONFIGS:
+        for k in ["late", "early"]:
+            for A, B in itertools.combinations(AGENTS[::-1], 2):
+                x, y = col(cid, A, k), col(cid, B, k)
+                if len(x) < 2 or len(y) < 2:
+                    continue
+                ci = boot_ci(x, y)
+                md.append(f"| {cid} | {k.upper()} | {NAMES[A]} vs {NAMES[B]} | {x.mean() - y.mean():+.3f} "
+                          f"[{ci[0]:+.3f}, {ci[1]:+.3f}] | {hedges_g(x, y):.2f} | {perm_test(x, y):.2g} |")
+
+    # MFEC memory diagnostics
+    md.append("\n## MFEC memory diagnostics (last snapshot of each run; mean ± s.d. over runs)\n")
+    md.append("| config | lookups hitting an exact stored state | writes updating an existing row |\n|---|---|---|")
+    for cid, _, _ in CONFIGS:
+        h, w = col(cid, "mfec", "exact_hit_share"), col(cid, "mfec", "exact_write_share")
+        if len(h):
+            md.append(f"| {cid} | {100 * h.mean():.1f}% ± {100 * h.std(ddof=1):.1f} | "
+                      f"{100 * w.mean():.1f}% ± {100 * w.std(ddof=1):.1f} |")
+
+    with open(f"{out}/results.md", "w") as f:
+        f.write("\n".join(md) + "\n")
+
+    # Learning curves: one panel per configuration, score per episode, mean ± s.e. over seeds.
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.3))
+    for ax, (cid, desc, _) in zip(axes, CONFIGS):
+        for a in ["dqn", "nec", "mfec", "random"]:
+            runs = data[cid][a]
+            if not runs:
+                continue
+            S = runs[0]["steps"]
+            edges = np.arange(0, S + 1, S // 20)
+            C = np.stack([curve(d["episodes"], edges) for d in runs])
+            mu, se = np.nanmean(C, 0), np.nanstd(C, 0) / np.sqrt(len(C))
+            x = edges[1:] / 1000
+            ref = a == "random"
+            ax.plot(x, mu, color=COLORS[a], lw=1.5 if ref else 2, ls="--" if ref else "-",
+                    label=f"{NAMES[a]} (n={len(C)})")
+            if not ref:
+                ax.fill_between(x, mu - se, mu + se, color=COLORS[a], alpha=0.15, lw=0)
+        ax.axvspan(S / 2000, S / 1000, color="#8a8984", alpha=0.07, lw=0)
+        ax.set_title(f"{cid}: {desc}", fontsize=10)
+        ax.set_xlabel("environment steps (thousands)")
+        ax.grid(alpha=0.25, lw=0.5)
+        for s in ("top", "right"):
+            ax.spines[s].set_visible(False)
+    axes[0].set_ylabel("fruit per episode")
+    axes[0].legend(fontsize=8, frameon=False)
+    fig.suptitle("Learning curves, mean ± s.e. over seeds (shaded band on the right = LATE window)", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(f"{out}/learning_curves.png", dpi=150)
+    print(f"wrote {out}/per_run.csv, results.md, learning_curves.png")
+
+
+def parse_seeds(s):
+    lo, hi = s.split("-")
+    return set(range(int(lo), int(hi) + 1))
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--root", default="results/exp_mfec")
+    ap.add_argument("--seeds", default="101-110")
+    ap.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
+    a = ap.parse_args()
+    main(a.root, parse_seeds(a.seeds), a.out)
