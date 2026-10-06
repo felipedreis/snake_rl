@@ -21,11 +21,11 @@ Differences from NEC (nec.py), besides the frozen random encoder:
 """
 import numpy as np
 
-from snake_rl.agents.nec import DND
+from snake_rl.agents.memory import KeyValueMemory
 
 
-class ECBuffer(DND):
-    """Q^EC for one action: DND storage and exact kNN, with MFEC's lookup and write rules."""
+class ECBuffer(KeyValueMemory):
+    """Q^EC for one action: shared storage and exact kNN, with MFEC's lookup and write rules."""
 
     def __init__(self, capacity, dim, k):
         super().__init__(capacity, dim, k, delta=0.0)
@@ -59,14 +59,7 @@ class ECBuffer(DND):
                 self.last_used[j] = t
                 self.stats["exact_updates"] += 1
                 return
-        if self.n < self.cap:
-            i = self.n
-            self.n += 1
-            self.stats["appends"] += 1
-        else:
-            i = int(np.argmin(self.last_used))
-            self.stats["evictions"] += 1
-        self.keys[i], self.vals[i], self.last_used[i] = h, R, t
+        self._insert(h, R, t)
 
 
 class MFECAgent:
