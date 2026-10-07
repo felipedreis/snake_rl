@@ -20,6 +20,9 @@ and grows the snake like a regular food, so greedy chasing makes the snake long 
 Distractors: `distractors` extra channels of i.i.d. Bernoulli(noise_p) pixels, resampled
 every step. They carry no information about value, but dominate raw-space distances,
 so nearest neighbours in observation space become largely random.
+Food distance (a curriculum aid, off by default): with `food_radius` = r, regular food is drawn only from
+free cells within r walkable steps of the head (shortest path around walls and the body), falling back to
+any free cell if none is that close. run.py can grow r during training (`--food-curriculum`).
 Truncation: episode is cut if the snake goes `max_idle` steps without eating
 (prevents endless loops; the value target bootstraps through truncation).
 
@@ -71,13 +74,14 @@ class Snake:
     DIRS = [(-1, 0), (0, 1), (1, 0), (0, -1)]  # up, right, down, left
 
     def __init__(self, size=7, max_idle=None, seed=0, distractors=0, noise_p=0.5,
-                 map="open", bonus=0.0, bonus_every=4, bonus_life=None):
+                 map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None):
         self.n = size
         self.D, self.noise_p = distractors, noise_p
         self.rng = np.random.default_rng(seed)
         self.max_idle = max_idle or 2 * size * size
         self.map, self.bonus_r, self.bonus_every = map, float(bonus), bonus_every
         self.bonus_life = bonus_life or 2 * size
+        self.food_radius = food_radius  # None = uniform placement; may be changed between steps
         self.walls = make_walls(map, size)
         self.wall_set = {(int(r), int(c)) for r, c in np.argwhere(self.walls)}
         c = size // 2
@@ -111,7 +115,25 @@ class Snake:
     def _place_food(self):
         self.food = None  # not yet placed: keep it out of the occupancy
         free = self._free()
+        if self.food_radius is not None and free:
+            dist = self._steps_from_head()
+            near = [p for p in free if dist.get(p, self.food_radius + 1) <= self.food_radius]
+            free = near or free  # nothing that close: fall back to anywhere
         self.food = free[self.rng.integers(len(free))] if free else None
+
+    def _steps_from_head(self):
+        """Shortest walkable path length from the head to every reachable cell (walls and body block)."""
+        blocked = self.wall_set | set(list(self.body)[1:])
+        head = self.body[0]
+        dist, todo = {head: 0}, deque([head])
+        while todo:
+            r, c = todo.popleft()
+            for dr, dc in self.DIRS:
+                q = (r + dr, c + dc)
+                if 0 <= q[0] < self.n and 0 <= q[1] < self.n and q not in blocked and q not in dist:
+                    dist[q] = dist[(r, c)] + 1
+                    todo.append(q)
+        return dist
 
     def _place_bonus(self):
         free = self._free()

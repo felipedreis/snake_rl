@@ -8,7 +8,7 @@ from snake_rl.agents.mfec import MFECAgent
 from snake_rl.env import Snake
 from snake_rl.nn import MLP
 from snake_rl.returns import NStep
-from snake_rl.run import epsilon, main
+from snake_rl.run import epsilon, food_radius, main
 
 
 def test_mlp_backward_matches_finite_differences():
@@ -195,3 +195,29 @@ def test_evaluation_does_not_change_training(name, tmp_path):
     assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
     assert [t for t, _ in b["evaluations"]] == [500, 1000, 1500]
     assert all(len(eps) == 2 and all(len(e) == 4 for e in eps) for _, eps in b["evaluations"])
+
+
+def test_food_radius_keeps_food_within_walkable_reach():
+    env, rng = Snake(size=15, seed=2, map="rooms", food_radius=3), np.random.default_rng(0)
+    placed, new_food = 0, True
+    env.reset()
+    for _ in range(3000):
+        if new_food:  # the radius applies at the moment food is placed; afterwards the snake moves on
+            assert env._steps_from_head()[env.food] <= 3
+            placed += 1
+        before = env.food
+        _, r, term, trunc = env.step(int(rng.integers(3)))
+        new_food = env.food != before
+        if term or trunc:
+            env.reset()
+            new_food = True
+    assert placed > 100
+
+
+def test_food_curriculum_schedule_and_run_tag(tmp_path):
+    assert food_radius(5, None, 25) is None
+    assert food_radius(0, (2, 100), 25) == 2 and food_radius(50, (2, 100), 25) == 26
+    assert food_radius(100, (2, 100), 25) is None  # curriculum over: anywhere, as in the real game
+    main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 200))
+    d = json.load(open(tmp_path / "g6_d0" / "random_fc2-200_s0.json"))
+    assert d["food_curriculum"] == [2, 200]

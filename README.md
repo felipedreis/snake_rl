@@ -83,3 +83,17 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
 - `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`: same agents with `nn.ConvNet` (conv 16, conv 32, FC 64, linear head;
   hand-written im2col backprop, gradient-checked in tests). CNN runs are ~3-10x slower than their MLP counterparts.
 - `Snake.render()` prints the board as ASCII.
+
+## Run options for exploration, evaluation and curricula
+- `--eps-decay N`: epsilon falls linearly from 1 to `--eps-floor` over N steps; `0` keeps it fixed at the floor
+  (DQN paper: `--eps-floor 0.1 --eps-decay 250000`; MFEC paper: `--eps-floor 0.005 --eps-decay 0`). Unset, the
+  original 5k-step schedule is used, bit-for-bit.
+- `--eval-every K [--eval-episodes M --eval-eps E]`: every K steps, play M episodes at epsilon E (default 0.05,
+  as in the DQN paper) on a separate env. Stored under `evaluations`; training is unchanged by it.
+- `--food-curriculum R:N`: regular food appears within R walkable steps of the head (around walls and the body),
+  the radius growing linearly to 2n over N steps; after that, anywhere, as in the real game. Food far away is
+  what large boards make hard: on 25x25 `rooms`, food starts on average ~13 steps from the head, and only 7% of
+  placements are within 5. Evaluation runs always place food anywhere.
+
+      snake-run nec 1 1000000 0 25 --map rooms --bonus 5 --food-curriculum 2:400000 --eval-every 10000
+      # -> results/g25_d0_rooms_b5/nec_fc2-400000_s1.json
