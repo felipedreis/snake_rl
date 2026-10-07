@@ -1,0 +1,20 @@
+start pilot steps=1000000 2026-10-07T09:23:34Z
+random_fc2-250000-600000_reloc 1 124295 eps, 73s
+dqn_eps0.1_epsd250000_fc2-250000-600000_reloc 1 29146 eps, 921s
+dqn_nstep_eps0.1_epsd250000_fc2-250000-600000_reloc 1 35949 eps, 939s
+dqn_nstep_eps0.1_epsd250000_fc2-250000-600000_reloc 2 32311 eps, 979s
+dqn_eps0.1_epsd250000_fc2-250000-600000_reloc 2 28702 eps, 968s
+random_fc2-250000-600000_reloc 2 124662 eps, 72s
+ec_frozen_eps0.005_epsd0_fc2-250000-600000_reloc 1 3111 eps, 3909s
+ec_frozen_eps0.005_epsd0_fc2-250000-600000_reloc 2 4806 eps, 5858s
+ec_frozen_eps0.005_epsd0_fc2-250000-600000_reloc 3 3702 eps, 4611s
+dqn_nstep_eps0.1_epsd250000_fc2-250000-600000_reloc 3 35015 eps, 985s
+random_fc2-250000-600000_reloc 3 124160 eps, 74s
+mfec_eps0.005_epsd0_fc2-250000-600000_reloc 2 3669 eps, 7161s
+dqn_eps0.1_epsd250000_fc2-250000-600000_reloc 3 28875 eps, 860s
+mfec_eps0.005_epsd0_fc2-250000-600000_reloc 1 5673 eps, 7524s
+nec_eps0.005_epsd0_fc2-250000-600000_reloc 1 2853 eps, 8588s
+mfec_eps0.005_epsd0_fc2-250000-600000_reloc 3 5560 eps, 5805s
+nec_eps0.005_epsd0_fc2-250000-600000_reloc 3 2907 eps, 7950s
+nec_eps0.005_epsd0_fc2-250000-600000_reloc 2 14952 eps, 10031s
+end pilot 2026-10-07T12:10:45Z
