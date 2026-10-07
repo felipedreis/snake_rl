@@ -1,0 +1,20 @@
+start pilot steps=1000000 2026-10-07T07:05:00Z
+random_fc2-600000 1 122655 eps, 56s
+dqn_eps0.1_epsd250000_fc2-600000 1 26445 eps, 897s
+dqn_nstep_eps0.1_epsd250000_fc2-600000 1 23807 eps, 898s
+dqn_eps0.1_epsd250000_fc2-600000 2 26594 eps, 951s
+dqn_nstep_eps0.1_epsd250000_fc2-600000 2 23148 eps, 956s
+random_fc2-600000 2 123202 eps, 54s
+mfec_eps0.005_epsd0_fc2-600000 2 1261 eps, 2303s
+ec_frozen_eps0.005_epsd0_fc2-600000 2 1077 eps, 2396s
+ec_frozen_eps0.005_epsd0_fc2-600000 1 1122 eps, 2661s
+mfec_eps0.005_epsd0_fc2-600000 1 1246 eps, 2759s
+random_fc2-600000 3 122731 eps, 55s
+dqn_nstep_eps0.1_epsd250000_fc2-600000 3 24515 eps, 832s
+dqn_eps0.1_epsd250000_fc2-600000 3 26622 eps, 765s
+mfec_eps0.005_epsd0_fc2-600000 3 1376 eps, 1994s
+ec_frozen_eps0.005_epsd0_fc2-600000 3 1189 eps, 2487s
+nec_eps0.005_epsd0_fc2-600000 2 2093 eps, 6968s
+nec_eps0.005_epsd0_fc2-600000 1 2711 eps, 7456s
+nec_eps0.005_epsd0_fc2-600000 3 2306 eps, 5860s
+end pilot 2026-10-07T09:13:32Z
