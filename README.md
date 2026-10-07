@@ -90,8 +90,10 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
   original 5k-step schedule is used, bit-for-bit.
 - `--eval-every K [--eval-episodes M --eval-eps E]`: every K steps, play M episodes at epsilon E (default 0.05,
   as in the DQN paper) on a separate env. Stored under `evaluations`; training is unchanged by it.
-- `--food-curriculum R:N`: regular food appears within R walkable steps of the head (around walls and the body),
-  the radius growing linearly to 2n over N steps; after that, anywhere, as in the real game. Food far away is
+- `--food-curriculum R:N` or `R:H:N`: regular food appears within R walkable steps of the head (around walls and
+  the body), the radius held at R until step H (default 0) and then growing linearly to 2n by step N; after that,
+  anywhere, as in the real game. `--food-relocate`: during the curriculum, food not eaten within 2r + 5 steps is
+  placed again within r of the head's current position, so an agent that wanders off still has food nearby. Food far away is
   what large boards make hard: on 25x25 `rooms`, food starts on average ~13 steps from the head, and only 7% of
   placements are within 5. Evaluation runs always place food anywhere.
 

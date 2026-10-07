@@ -1,7 +1,7 @@
 """Run one (agent, seed) and save per-episode scores.
 
 usage: snake-run <agent> <seed> <steps> [n_distractor_channels] [grid_size] [--eps-floor F] [--eps-decay N]
-                 [--map M] [--bonus R] [--food-curriculum R:N] [--eval-every K [--eval-episodes M] [--eval-eps E]]
+                 [--map M] [--bonus R] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
 """
@@ -32,19 +32,21 @@ def epsilon(t, floor=EPS_FLOOR, decay=None):
 
 
 def food_radius(t, curriculum, size):
-    """Food-distance curriculum: (r0, n) grows the food radius linearly from r0 to 2*size over n steps,
-    then places food anywhere (None), as in the real game. curriculum=None: always anywhere."""
-    if curriculum is None or t >= curriculum[1]:
+    """Food-distance curriculum. (r0, n): the radius grows linearly from r0 to 2*size over n steps.
+    (r0, hold, n): it stays at r0 until step hold, then grows to 2*size by step n. From step n on, food goes
+    anywhere (None), as in the real game. curriculum=None: always anywhere."""
+    if curriculum is None or t >= curriculum[-1]:
         return None
-    r0, n = curriculum
-    return int(r0 + (2 * size - r0) * t / n)
+    r0, hold, n = curriculum if len(curriculum) == 3 else (curriculum[0], 0, curriculum[1])
+    return r0 if t < hold else int(r0 + (2 * size - r0) * (t - hold) / (n - hold))
 
 
-def run_name(name, eps_floor=EPS_FLOOR, eps_decay=None, food_curriculum=None):
+def run_name(name, eps_floor=EPS_FLOOR, eps_decay=None, food_curriculum=None, food_relocate=False):
     """Result file stem (minus seed): the agent name, tagged with any non-default run settings."""
     return (name + ("" if eps_floor == EPS_FLOOR else f"_eps{eps_floor:g}")
             + ("" if eps_decay is None else f"_epsd{eps_decay}")
-            + ("" if food_curriculum is None else f"_fc{food_curriculum[0]}-{food_curriculum[1]}"))
+            + ("" if food_curriculum is None else "_fc" + "-".join(str(x) for x in food_curriculum))
+            + ("_reloc" if food_relocate else ""))
 
 
 def evaluate(agent, env, rng, episodes, eps):
@@ -75,10 +77,12 @@ def results_dir(D, size, root="results", map="open", bonus=0.0):
 
 
 def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
-         eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None):
+         eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False):
+    if food_relocate and food_curriculum is None:
+        raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
     env = Snake(size=size, seed=seed + 1000, distractors=D, map=map, bonus=bonus,
-                food_radius=food_radius(0, food_curriculum, size))
+                food_radius=food_radius(0, food_curriculum, size), relocate_food=food_relocate)
     agent = make_agent(name, env, rng)
     # Evaluation always places food anywhere: it measures the real task, whatever the training curriculum.
     if eval_every:  # own env and RNG streams, so evaluation never shifts training's random numbers
@@ -103,15 +107,15 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
         if eval_every and t % eval_every == 0:
             evals.append((t, evaluate(agent, eval_env, eval_rng, eval_episodes, eval_eps)))
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
-           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "map": map, "bonus": bonus, "episodes": log, "diagnostics": diag,
+           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
            "evaluations": evals,
            "wallclock_s": time.time() - t0}
     out_dir = results_dir(D, size, root, map, bonus)
     os.makedirs(out_dir, exist_ok=True)
-    with open(f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum)}_s{seed}.json", "w") as f:
+    with open(f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate)}_s{seed}.json", "w") as f:
         json.dump(out, f)
-    print(run_name(name, eps_floor, eps_decay, food_curriculum), seed, f"{len(log)} eps, {time.time()-t0:.0f}s")
+    print(run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate), seed, f"{len(log)} eps, {time.time()-t0:.0f}s")
 
 
 def cli():
@@ -127,9 +131,11 @@ def cli():
                          "default: the original 5k-step schedule)")
     ap.add_argument("--map", default="open", choices=MAPS, help="obstacle layout")
     ap.add_argument("--bonus", type=float, default=0.0, help="reward of the timed bonus food (0 = off)")
-    ap.add_argument("--food-curriculum", default=None, metavar="R:N",
-                    help="place food within R walkable steps of the head, growing to the whole board over N "
-                         "steps, then anywhere (default: anywhere from the start)")
+    ap.add_argument("--food-curriculum", default=None, metavar="R[:H]:N",
+                    help="place food within R walkable steps of the head (held until step H), growing to the "
+                         "whole board by step N, then anywhere (default: anywhere from the start)")
+    ap.add_argument("--food-relocate", action="store_true",
+                    help="during the curriculum, re-place food not eaten within 2r+5 steps near the head")
     ap.add_argument("--eval-every", type=int, default=0,
                     help="every K steps, play evaluation episodes on a separate env (0 = off)")
     ap.add_argument("--eval-episodes", type=int, default=5, help="episodes per evaluation")
@@ -138,7 +144,7 @@ def cli():
     a = ap.parse_args()
     fc = tuple(int(x) for x in a.food_curriculum.split(":")) if a.food_curriculum else None
     main(a.agent, a.seed, a.steps, a.distractors, a.size, a.results, a.eps_floor, a.map, a.bonus, a.eps_decay,
-         a.eval_every, a.eval_episodes, a.eval_eps, fc)
+         a.eval_every, a.eval_episodes, a.eval_eps, fc, a.food_relocate)
 
 
 if __name__ == "__main__":

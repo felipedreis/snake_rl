@@ -221,3 +221,31 @@ def test_food_curriculum_schedule_and_run_tag(tmp_path):
     main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 200))
     d = json.load(open(tmp_path / "g6_d0" / "random_fc2-200_s0.json"))
     assert d["food_curriculum"] == [2, 200]
+
+
+def test_food_curriculum_hold_then_grow():
+    fc = (2, 250_000, 600_000)
+    assert food_radius(0, fc, 25) == 2 == food_radius(249_999, fc, 25)        # held
+    assert food_radius(425_000, fc, 25) == 26 and food_radius(600_000, fc, 25) is None
+    assert [food_radius(t, (2, 600_000), 25) for t in (0, 137_500, 599_999)] == [2, 13, 49]  # v3 form unchanged
+
+
+def test_food_relocation_moves_uneaten_food_near_the_head():
+    env = Snake(size=15, seed=1, map="rooms", food_radius=3, relocate_food=True)
+    env.reset()
+    env.food, env.food_age = (0, 0), 2 * 3 + 5 - 1     # far away, one step short of the patience
+    env.step(0)                                         # straight ahead from the centre: safe, eats nothing
+    assert env.food != (0, 0) and env._steps_from_head()[env.food] <= 3 and env.food_age == 0
+    off = Snake(size=15, seed=1, map="rooms", food_radius=3)  # relocation off: the food stays put
+    off.reset()
+    off.food, off.food_age = (0, 0), 100
+    off.step(0)
+    assert off.food == (0, 0)
+
+
+def test_relocation_needs_a_curriculum(tmp_path):
+    with pytest.raises(ValueError):
+        main("random", 0, 10, size=6, root=str(tmp_path), food_relocate=True)
+    main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 100, 200), food_relocate=True)
+    d = json.load(open(tmp_path / "g6_d0" / "random_fc2-100-200_reloc_s0.json"))
+    assert d["food_curriculum"] == [2, 100, 200] and d["food_relocate"] is True

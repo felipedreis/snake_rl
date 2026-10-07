@@ -22,7 +22,9 @@ every step. They carry no information about value, but dominate raw-space distan
 so nearest neighbours in observation space become largely random.
 Food distance (a curriculum aid, off by default): with `food_radius` = r, regular food is drawn only from
 free cells within r walkable steps of the head (shortest path around walls and the body), falling back to
-any free cell if none is that close. run.py can grow r during training (`--food-curriculum`).
+any free cell if none is that close. run.py can grow r during training (`--food-curriculum`). With
+`relocate_food` also on, food not eaten within 2r + 5 steps of being placed is placed again within r of the
+head's current position (the episode goes on), so an agent that wanders off still has food nearby.
 Truncation: episode is cut if the snake goes `max_idle` steps without eating
 (prevents endless loops; the value target bootstraps through truncation).
 
@@ -74,7 +76,7 @@ class Snake:
     DIRS = [(-1, 0), (0, 1), (1, 0), (0, -1)]  # up, right, down, left
 
     def __init__(self, size=7, max_idle=None, seed=0, distractors=0, noise_p=0.5,
-                 map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None):
+                 map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None, relocate_food=False):
         self.n = size
         self.D, self.noise_p = distractors, noise_p
         self.rng = np.random.default_rng(seed)
@@ -82,6 +84,8 @@ class Snake:
         self.map, self.bonus_r, self.bonus_every = map, float(bonus), bonus_every
         self.bonus_life = bonus_life or 2 * size
         self.food_radius = food_radius  # None = uniform placement; may be changed between steps
+        self.relocate_food = relocate_food  # only acts while food_radius is set
+        self.food_age = 0  # steps since the current food was placed
         self.walls = make_walls(map, size)
         self.wall_set = {(int(r), int(c)) for r, c in np.argwhere(self.walls)}
         c = size // 2
@@ -113,7 +117,7 @@ class Snake:
         return [(r, c) for r in range(self.n) for c in range(self.n) if (r, c) not in occ]
 
     def _place_food(self):
-        self.food = None  # not yet placed: keep it out of the occupancy
+        self.food, self.food_age = None, 0  # not yet placed: keep it out of the occupancy
         free = self._free()
         if self.food_radius is not None and free:
             dist = self._steps_from_head()
@@ -181,6 +185,7 @@ class Snake:
         hr, hc = self.body[0]
         nh = (hr + dr, hc + dc)
         self.idle += 1
+        self.food_age += 1
         if self.bonus_pos is not None:
             self.bonus_left -= 1
             if self.bonus_left <= 0:
@@ -203,4 +208,7 @@ class Snake:
                 self._place_bonus()
             return self._obs(), 1.0, False, False
         self.body.pop()
+        if (self.relocate_food and self.food_radius is not None and self.food is not None
+                and self.food_age >= 2 * self.food_radius + 5):
+            self._place_food()  # uneaten for too long: put it back within reach of the head
         return self._obs(), 0.0, False, self.idle >= self.max_idle
