@@ -30,6 +30,11 @@ AGENTS = {
                                                encoder="cnn", obs_shape=env.obs_shape),
     "nec_cnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
                                          encoder="cnn", obs_shape=env.obs_shape),
+    # DQN-shaped CNN (32 3x3/1, 64 3x3/2, 64 3x3/2, FC 512): the paper's encoder family scaled to the grid
+    "dqn_dqncnn": lambda env, rng: DQNAgent(env.obs_dim, env.n_actions, rng, N=1, encoder="dqncnn",
+                                            obs_shape=env.obs_shape),
+    "nec_dqncnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
+                                            encoder="dqncnn", obs_shape=env.obs_shape),
 }
 
 

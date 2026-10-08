@@ -2,13 +2,14 @@
 
 usage: snake-run <agent> <seed> <steps> [n_distractor_channels] [grid_size] [--eps-floor F] [--eps-decay N]
                  [--map M] [--bonus R] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
-                 [--probe-every K]
+                 [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
 """
 import argparse
 import json
 import os
+import pickle
 import time
 
 import numpy as np
@@ -72,6 +73,13 @@ def evaluate(agent, env, rng, episodes, eps):
     return out
 
 
+def save(agent, path, name, seed, t, size, map, bonus, D):
+    """Pickle the agent (without its replay buffer) plus the env settings snake-watch needs to replay it."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        pickle.dump(dict(agent=agent, name=name, seed=seed, t=t, size=size, map=map, bonus=bonus, distractors=D), f)
+
+
 def results_dir(D, size, root="results", map="open", bonus=0.0):
     """results/d{D} (7x7) or g{size}_d{D}; a non-default map / bonus food adds _{map} / _b{bonus}."""
     base = f"{root}/d{D}" if size == 7 else f"{root}/g{size}_d{D}"
@@ -80,7 +88,7 @@ def results_dir(D, size, root="results", map="open", bonus=0.0):
 
 def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
-         probe_every=0):
+         probe_every=0, train_log_every=1000, save_agent=False, save_every=0):
     if food_relocate and food_curriculum is None:
         raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
@@ -94,8 +102,16 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
     # Representation probe (probe.py): a fixed hand-built state set, no rng shared with training.
     P = make_probe_set(size, map, bonus) if probe_every and not D else None
     probes = [(0, probe(agent, P))] if P is not None else []
+    out_dir = results_dir(D, size, root, map, bonus)
+    stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate)}_s{seed}"
+    # Training telemetry (telemetry.py): window means every train_log_every steps. Also streamed, one JSON line per
+    # snapshot, to <stem>.train.jsonl as the run goes (kept afterwards), so `snake-train` can plot a run in progress.
+    tlog = hasattr(agent, "train_stats") and train_log_every > 0
+    if tlog:
+        os.makedirs(out_dir, exist_ok=True)
+        live = open(f"{stem}.train.jsonl", "w")
     obs = env.reset()
-    log, diag, evals, t0 = [], [], [], time.time()
+    log, diag, evals, train, t0 = [], [], [], [], time.time()
     for t in range(1, steps + 1):
         if food_curriculum is not None:
             env.food_radius = food_radius(t, food_curriculum, size)
@@ -114,15 +130,26 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
             evals.append((t, evaluate(agent, eval_env, eval_rng, eval_episodes, eval_eps)))
         if P is not None and t % probe_every == 0:
             probes.append((t, probe(agent, P)))
+        if save_every and t % save_every == 0:
+            save(agent, f"{stem}.agent_t{t}.pkl", name, seed, t, size, map, bonus, D)
+        if tlog and t % train_log_every == 0:
+            s = agent.train_stats()
+            if s:
+                train.append((t, s))
+                live.write(json.dumps({"t": t, **s}) + "\n")
+                live.flush()
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
            "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
-           "evaluations": evals, "probes": probes,
+           "evaluations": evals, "probes": probes, "train": train,
            "wallclock_s": time.time() - t0}
-    out_dir = results_dir(D, size, root, map, bonus)
     os.makedirs(out_dir, exist_ok=True)
-    with open(f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate)}_s{seed}.json", "w") as f:
+    with open(f"{stem}.json", "w") as f:
         json.dump(out, f)
+    if save_agent:
+        save(agent, f"{stem}.agent.pkl", name, seed, steps, size, map, bonus, D)
+    if tlog:
+        live.close()
     print(run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate), seed, f"{len(log)} eps, {time.time()-t0:.0f}s")
 
 
@@ -150,11 +177,16 @@ def cli():
     ap.add_argument("--eval-eps", type=float, default=0.05, help="epsilon during evaluation (DQN paper: 0.05)")
     ap.add_argument("--probe-every", type=int, default=0,
                     help="every K steps, measure the encoder and greedy steering on a fixed probe set (probe.py)")
+    ap.add_argument("--train-log-every", type=int, default=1000,
+                    help="every K steps, log training telemetry (loss, TD error, grad norm, ...; 0 = off)")
+    ap.add_argument("--save-agent", action="store_true",
+                    help="pickle the trained agent to <stem>.agent.pkl, for snake-watch")
+    ap.add_argument("--save-every", type=int, default=0, help="also pickle a checkpoint every K steps")
     ap.add_argument("--results", default="results", help="results root directory")
     a = ap.parse_args()
     fc = tuple(int(x) for x in a.food_curriculum.split(":")) if a.food_curriculum else None
     main(a.agent, a.seed, a.steps, a.distractors, a.size, a.results, a.eps_floor, a.map, a.bonus, a.eps_decay,
-         a.eval_every, a.eval_episodes, a.eval_eps, fc, a.food_relocate, a.probe_every)
+         a.eval_every, a.eval_episodes, a.eval_eps, fc, a.food_relocate, a.probe_every, a.train_log_every, a.save_agent, a.save_every)
 
 
 if __name__ == "__main__":

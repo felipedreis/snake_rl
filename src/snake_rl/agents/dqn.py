@@ -12,8 +12,9 @@ Target: G + disc * max_a Q_target(boot_obs, a), Huber loss, periodic target sync
 N=1 gives standard DQN; N>1 isolates the contribution of N-step returns.
 """
 import numpy as np
-from snake_rl.nn import MLP, ConvNet, Adam
+from snake_rl.nn import MLP, ConvNet, Adam, DQN_CONVS, DQN_FC
 from snake_rl.returns import NStep
+from snake_rl.telemetry import TrainStats
 
 
 class DQNAgent:
@@ -27,7 +28,8 @@ class DQNAgent:
       batch        transitions per training step (minibatch size).
       train_every  do one training step every this many env steps.
       target_every copy the online network into the target network every this many env steps.
-      encoder      "mlp" or "cnn" (the *_cnn agents); obs_shape is the (C, n, n) grid the CNN needs.
+      encoder      "mlp", "cnn" (small stride-1 CNN, *_cnn) or "dqncnn" (DQN-shaped CNN, *_dqncnn); obs_shape
+                   is the (C, n, n) grid the CNNs need.
     """
 
     def __init__(self, obs_dim, n_actions, rng, N=1, gamma=0.99, hidden=64, lr=5e-4,
@@ -39,6 +41,8 @@ class DQNAgent:
         # the flat observation.
         if encoder == "cnn":
             net = lambda: ConvNet(obs_shape, [16, 32], [hidden, n_actions], rng)
+        elif encoder == "dqncnn":  # DQN's conv shape scaled to the grid, FC 512 (see nn.ConvNet)
+            net = lambda: ConvNet(obs_shape, DQN_CONVS, [DQN_FC, n_actions], rng)
         else:
             net = lambda: MLP([obs_dim, hidden, hidden, n_actions], rng)
         # q: the "online" Q-network, observation -> one Q-value per action. This is what we train.
@@ -63,6 +67,7 @@ class DQNAgent:
                                                   #   episode ended (dead snake: no future reward)
         # n: rows filled so far; i: next row to write (wraps around, overwriting the oldest); cap: size.
         self.n, self.i, self.cap = 0, 0, replay_cap
+        self.stats = TrainStats()  # per-update training telemetry, read by run.py via train_stats()
 
     def act(self, obs, eps, t):
         # Epsilon-greedy: explore with probability eps, otherwise exploit the current Q estimate.
@@ -91,7 +96,7 @@ class DQNAgent:
         Z, Q = [], []
         for lo in range(0, len(X), 256):  # chunked: CNN im2col buffers are large
             Q.append(self.q.forward(X[lo:lo + 256]))
-            Z.append(self.q.cache[-2] if isinstance(self.q, MLP) else self.q.cache[-1])  # input to the output layer
+            Z.append(self.q.last_hidden())
         return np.concatenate(Z), np.concatenate(Q)
 
     def _train(self):
@@ -106,4 +111,16 @@ class DQNAgent:
         # Huber loss = squared error for |err| <= 1, absolute error beyond. Its gradient is err clipped
         # to [-1, 1], so a single surprising target can't produce a huge update. /batch = mean over rows.
         g[np.arange(self.batch), self.A[idx]] = np.clip(err, -1, 1) / self.batch  # Huber grad
+        ae, h = np.abs(err), self.q.last_hidden()
         self.opt.step(self.q.backward(g))
+        self.stats.add(loss=np.where(ae <= 1, 0.5 * err ** 2, ae - 0.5).mean(), td_abs=ae.mean(),
+                       td_clipped=(ae > 1).mean(), q_taken=(y + err).mean(), q_max=Q.max(1).mean(), target=y.mean(),
+                       dead_relu=(h.max(0) <= 0).mean(), **self.opt.last)
+
+    def __getstate__(self):
+        """Pickle without the replay buffer (GBs on big boards): enough to act, e.g. for snake-watch, not to resume."""
+        return {k: (None if k in ("S", "A", "G", "B", "D") else v) for k, v in self.__dict__.items()}
+
+    def train_stats(self):
+        """Window means of the training telemetry since the last call (see telemetry.py)."""
+        return self.stats.snapshot()

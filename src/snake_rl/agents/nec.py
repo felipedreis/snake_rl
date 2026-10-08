@@ -30,8 +30,9 @@ periodically re-embeds all keys with the current encoder, removing key drift.
 """
 import numpy as np
 from snake_rl.agents.memory import KeyValueMemory
-from snake_rl.nn import MLP, ConvNet, Adam
+from snake_rl.nn import MLP, ConvNet, Adam, DQN_CONVS, DQN_FC
 from snake_rl.returns import NStep
+from snake_rl.telemetry import TrainStats
 
 
 class DND(KeyValueMemory):
@@ -97,7 +98,8 @@ class NECAgent:
       train_every      one training step every this many env steps.
       refresh_every    nec_refresh: recompute all stored keys every this many steps (0 = never).
       bonus_beta       nec_bonus: weight of the exploration bonus when acting (0 = off).
-      encoder          "mlp" or "cnn" (the *_cnn agents); obs_shape is the (C, n, n) grid the CNN needs.
+      encoder          "mlp", "cnn" (small stride-1 CNN, *_cnn) or "dqncnn" (DQN-shaped CNN, *_dqncnn); obs_shape
+                       is the (C, n, n) grid the CNNs need.
     """
 
     def __init__(self, obs_dim, n_actions, rng, learn_embedding=True, key_dim=32, hidden=64,
@@ -109,6 +111,8 @@ class NECAgent:
         # enc: the encoder network, observation -> embedding h of length key_dim.
         if encoder == "cnn":
             self.enc = ConvNet(obs_shape, [16, 32], [hidden, key_dim], rng)
+        elif encoder == "dqncnn":  # DQN's conv shape and FC 512 (the paper's encoder family), then the key
+            self.enc = ConvNet(obs_shape, DQN_CONVS, [DQN_FC, key_dim], rng)
         else:
             self.enc = MLP([obs_dim, hidden, key_dim], rng)
         # opt: updates the encoder's weights (the DND is updated directly in _train, not by Adam).
@@ -127,6 +131,7 @@ class NECAgent:
         self.R_ret = np.zeros(replay_cap)             # its N-step Q target (the value written to the DND)
         # r_n: rows filled; r_i: next row to write (wraps around); r_cap: size.
         self.r_n, self.r_i, self.r_cap = 0, 0, replay_cap
+        self.stats = TrainStats()  # per-update training telemetry (slow path), read by run.py via train_stats()
         # self._h (set in act): embedding of the current observation. observe() pairs it with the action
         # and later writes it to the DND as the key, so it is computed only once.
 
@@ -209,6 +214,8 @@ class NECAgent:
         H = self.enc.forward(X)  # (batch, key_dim) embeddings
         gH = np.zeros_like(H)    # dL/dH, filled in per action below
         B = self.batch
+        hid = self.enc.last_hidden()
+        Qb, dist, peak, seen = np.zeros(B), np.zeros(B), np.zeros(B), np.zeros(B, bool)  # telemetry only
         for a, dnd in enumerate(self.dnds):
             m = A == a  # the rows of the minibatch where action a was taken
             if not m.any() or dnd.n == 0:
@@ -222,6 +229,7 @@ class NECAgent:
             w = kern / S                     # w_i
             V = dnd.vals[nb]                 # v_i
             Q = (w * V).sum(1)
+            Qb[m], dist[m], peak[m], seen[m] = Q, d.mean(1), w.max(1), True
             g = (Q - R[m]) / B                              # dL/dQ
             # Chain rule through the distances: dQ/dk_i = (v_i - Q) / S, and dk_i/dd_i = -k_i^2.
             dL_dd = g[:, None] * (V - Q[:, None]) / S * (-kern ** 2)   # dL/d(dist_i)
@@ -235,3 +243,19 @@ class NECAgent:
             np.add.at(dnd.keys, nb.ravel(), -self.mem_lr * gK.reshape(-1, gK.shape[-1]))
         # Backpropagate dL/dH through the encoder (H is still its last forward output) and step Adam.
         self.opt.step(self.enc.backward(gH))
+        if seen.any():
+            err = Qb[seen] - R[seen]
+            # nb_dist: mean squared distance to the p neighbours (the scale the kernel sees); kernel_peak: mean
+            # largest neighbour weight (1/p = all neighbours equal, 1 = a single neighbour decides Q).
+            self.stats.add(loss=0.5 * (err ** 2).mean(), td_abs=np.abs(err).mean(), q_taken=Qb[seen].mean(),
+                           target=R[seen].mean(), nb_dist=dist[seen].mean(), kernel_peak=peak[seen].mean(),
+                           key_norm=np.sqrt((H ** 2).sum(1)).mean(), dead_relu=(hid.max(0) <= 0).mean(),
+                           **self.opt.last)
+
+    def __getstate__(self):
+        """Pickle without the replay buffer (GBs on big boards): enough to act, e.g. for snake-watch, not to resume."""
+        return {k: (None if k in ("R_obs", "R_act", "R_ret") else v) for k, v in self.__dict__.items()}
+
+    def train_stats(self):
+        """Window means of the slow-path training telemetry since the last call (see telemetry.py)."""
+        return self.stats.snapshot()

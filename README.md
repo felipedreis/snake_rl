@@ -20,6 +20,9 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
     snake-plot results/d0          # -> figures/learning_curves_d0.png + tables on stdout
     snake-plot results/d0_rooms_b5 # -> figures/learning_curves_d0_rooms_b5.png
     snake-peek results/d0/nec_*.json
+    snake-train results/d0/nec_s1.json            # training curves: loss, TD error, Q vs target, grad norm, ...
+    snake-run dqn_cnn 1 40000 --save-agent        # also pickle the trained agent -> results/d0/dqn_cnn_s1.agent.pkl
+    snake-watch results/d0/dqn_cnn_s1.agent.pkl   # watch it play in the terminal (--gui for a window, --gif out.gif)
     pytest
 
 (`python -m snake_rl.run ...` etc. work too.)
@@ -31,7 +34,9 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
       nn.py             MLP with manual backprop, Adam
       returns.py        N-step return accumulator
       agents/           base.py (Agent interface), dqn.py, nec.py, mfec.py; __init__.py holds the registry
-      run.py plot.py peek.py
+      probe.py          representation probe (--probe-every): steering and food-offset separability
+      telemetry.py      per-update training statistics (loss, gradient norm, ...)
+      run.py plot.py peek.py trainplot.py (snake-train) watch.py (snake-watch)
     tests/              gradient checks, N-step targets, smoke runs of every agent
     results/            per-run JSON, results/d{D} (7x7) or results/g{size}_d{D}, plus _{map} / _b{R} if set
     figures/            learning-curve PNGs and saved tables
@@ -41,7 +46,7 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 New agents: implement `act`/`observe` (see `agents/base.py`), add a factory to `AGENTS` in
 `agents/__init__.py`, and optionally a legend name in `plot.LABELS`.
 
-Known differences from the paper: MLP encoder by default (the `*_cnn` agents use a small CNN, see below, with 3x3 stride-1 convs rather than the Atari 8x8/4,4x4/2,3x3/1 stack), exact brute-force kNN instead of
+Known differences from the paper: MLP encoder by default (the `*_cnn` agents use a small CNN, see below, with 3x3 stride-1 convs rather than the Atari 8x8/4,4x4/2,3x3/1 stack; the `*_dqncnn` agents copy DQN's shape on the grid), exact brute-force kNN instead of
 kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per action.
 
 ## Later additions
@@ -82,6 +87,9 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
 - Output goes to `results/d{D}_{map}_b{R}` (e.g. `results/d0_pillars_b5`); the JSON records `map` and `bonus`.
 - `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`: same agents with `nn.ConvNet` (conv 16, conv 32, FC 64, linear head;
   hand-written im2col backprop, gradient-checked in tests). CNN runs are ~3-10x slower than their MLP counterparts.
+- `dqn_dqncnn`, `nec_dqncnn`: DQN's convolutional shape scaled to the grid (conv 32 3x3/1, conv 64 3x3/2, conv 64 3x3/2,
+  FC 512; 25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari). Known issue: on 25x25, NEC's
+  embedding diverges with either CNN encoder (see `docs/experiments/encoder_food_probe_g25/REPORT.md`, addendum).
 - `Snake.render()` prints the board as ASCII.
 
 ## Run options for exploration, evaluation and curricula
@@ -99,3 +107,41 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
 
       snake-run nec 1 1000000 0 25 --map rooms --bonus 5 --food-curriculum 2:400000 --eval-every 10000
       # -> results/g25_d0_rooms_b5/nec_fc2-400000_s1.json
+
+## Watching training and the agent
+
+**Training curves.** Every agent that trains by gradient (DQN and NEC variants) logs window averages of its updates
+every 1,000 steps (`--train-log-every K`, `0` = off): loss, |TD error|, Q(s,a) and its target, gradient norm before
+clipping, share of clipped steps, step size relative to the weights, and dead ReLUs; NEC adds the distance to its
+memory neighbours and the largest kernel weight. They are stored under `train` in the result JSON and also written,
+one line per snapshot, to `<run>.train.jsonl` as the run goes, so a run can be inspected before it finishes.
+
+    snake-train results/d0/dqn_cnn_s1.json --out figures/train_dqn_cnn.png
+    snake-train results/d0/dqn_s*.json results/d0/nec_s*.json --smooth 5   # compare runs; one line per seed
+    snake-train results/d0/nec_s1.train.jsonl                              # a run still in progress
+
+The PNG has one panel per quantity, and the terminal shows the latest values of each run. The docstring of
+`src/snake_rl/trainplot.py` lists what healthy values look like. Results from before this feature have no `train`
+field.
+
+**Watching the agent play.** `--save-agent` pickles the trained agent to `<run>.agent.pkl`, and `--save-every K`
+adds checkpoints `<run>.agent_t{K}.pkl` along the way. The replay buffer is left out, so a checkpoint can act but not
+resume training. `snake-watch` plays it on the board it was trained on:
+
+    snake-watch results/d0/dqn_cnn_s1.agent.pkl                  # terminal, greedy
+    snake-watch results/d0/dqn_cnn_s1.agent.pkl --gui            # matplotlib window
+    snake-watch results/d0/dqn_cnn_s1.agent.pkl --gif out.gif    # save an animation
+    snake-watch <checkpoint> --food-radius 2 --relocate          # with the training curriculum's food placement
+    snake-watch dqn --size 25 --map rooms --bonus 5              # an untrained agent, for comparison
+
+The side panel shows the score, the Q-value the agent gives each action (straight, right, left) with the chosen one
+marked and, for NEC, how far the current situation is from its memories. Terminal keys: space pause, `+`/`-` speed,
+`n` next episode, `q` quit. Other options: `--episodes N`, `--eps E` (default 0, greedy), `--delay S`, `--seed K`.
+Watching never changes the checkpoint.
+
+**Representation probe.** `--probe-every K` scores the agent every K steps on a fixed set of states with food at most
+2 steps away: greedy steering accuracy and how well its embedding separates where the food is relative to the snake
+(`src/snake_rl/probe.py`). Stored under `probes` in the result JSON.
+
+All of these are bookkeeping only: a run is bit-for-bit the same with them on or off.
+

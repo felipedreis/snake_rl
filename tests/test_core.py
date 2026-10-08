@@ -272,3 +272,99 @@ def test_probe_set_labels():
     assert steering(P["good"].astype(float), P)["steer"] == 1.0
     s = steering(np.zeros(P["good"].shape), P)
     assert s["steer"] == pytest.approx(s["steer_chance"])
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec", "dqn_cnn", "nec_cnn"])
+def test_train_telemetry_is_logged_and_streamed(name, tmp_path):
+    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "off"), train_log_every=0, **kw)
+    main(name, 4, 1500, root=str(tmp_path / "on"), train_log_every=500, **kw)
+    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4"
+    a, b = (json.load(open(tmp_path / r / f"{stem}.json")) for r in ("off", "on"))
+    assert a["episodes"] == b["episodes"] and a["train"] == []
+    live = [json.loads(l) for l in open(tmp_path / "on" / f"{stem}.train.jsonl")]  # kept after the run
+    assert [r.pop("t") for r in live] == [t for t, _ in b["train"]] and live == [s for _, s in b["train"]]
+    t, s = b["train"][-1]
+    assert t == 1500 and s["updates"] > 0 and np.isfinite(s["loss"]) and 0 <= s["clipped"] <= 1
+    assert all(k in s for k in ("td_abs", "q_taken", "target", "grad_norm", "update_ratio", "dead_relu"))
+
+
+def test_strided_convnet_backward_matches_finite_differences():
+    from snake_rl.nn import ConvNet
+    rng = np.random.default_rng(0)
+    net = ConvNet((2, 7, 7), convs=[(3, 3, 1), (2, 3, 2), (2, 3, 2)], fcs=[5, 3], rng=rng)
+    assert net.out_hw == 2  # 7 -> 7 -> 4 -> 2
+    x, y = rng.normal(size=(3, 2 * 49)), rng.normal(size=(3, 3))
+    loss = lambda: 0.5 * ((net.forward(x) - y) ** 2).sum()
+    loss()
+    grads = net.backward(net.forward(x) - y)
+    for p, g in zip(net.params(), grads):
+        for i in np.ndindex(p.shape):
+            old = p[i]
+            p[i] = old + 1e-6; up = loss()
+            p[i] = old - 1e-6; down = loss()
+            p[i] = old
+            assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-6)
+
+
+def test_dqn_shaped_cnn_on_the_25_grid():
+    from snake_rl.nn import ConvNet, DQN_CONVS, DQN_FC
+    net = ConvNet((5, 25, 25), DQN_CONVS, [DQN_FC, 32], np.random.default_rng(0))
+    assert [ho for _, _, _, ho in net.layers] == [25, 13, 7] and net.W[3].shape == (7 * 7 * 64, 512)
+    assert net.forward(np.zeros((2, 5 * 625))).shape == (2, 32)
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec_dqncnn", "mfec", "random"])
+def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
+    import pickle
+    from snake_rl.watch import frames
+    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
+    main(name, 4, 1500, root=str(tmp_path / "saved"), save_agent=True, save_every=500, **kw)
+    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4"
+    a, b = (json.load(open(tmp_path / r / f"{stem}.json")) for r in ("plain", "saved"))
+    assert a["episodes"] == b["episodes"]
+    for t in (500, 1000, 1500):
+        assert (tmp_path / "saved" / f"{stem}.agent_t{t}.pkl").exists()
+    ck = pickle.load(open(tmp_path / "saved" / f"{stem}.agent.pkl", "rb"))
+    assert ck["size"] == 7 and ck["map"] == "rooms" and ck["t"] == 1500
+    assert getattr(ck["agent"], "S", None) is None and getattr(ck["agent"], "R_obs", None) is None  # no replay saved
+    env = Snake(size=7, map="rooms", bonus=5, seed=0)
+    fs = list(frames(ck["agent"], env, 0.0, 2, np.random.default_rng(0), None))
+    assert sum(f["end"] is not None for f in fs) == 2 and all(f["a"] in (0, 1, 2) for f in fs if f["end"] is None)
+
+
+def test_nec_encoder_gradient_matches_finite_differences():
+    import copy
+    from snake_rl.agents.nec import NECAgent
+    rng = np.random.default_rng(0)
+    ag = NECAgent(6, 2, rng, key_dim=3, hidden=5, p=4, N=1, batch=8, mem_lr=0.0)  # mem_lr 0: memory left untouched
+    for d in ag.dnds:
+        for _ in range(10):
+            d._insert(rng.normal(size=3), rng.normal(), 0)
+    ag.R_obs[:20], ag.R_act[:20], ag.R_ret[:20] = rng.normal(size=(20, 6)), rng.integers(2, size=20), rng.normal(size=20)
+    ag.r_n = 20
+    idx = copy.deepcopy(ag.rng).integers(ag.r_n, size=ag.batch)  # the minibatch _train is about to draw
+    X, A, R = ag.R_obs[idx], ag.R_act[idx], ag.R_ret[idx]
+    got = {}
+    ag.opt.step = lambda grads: got.setdefault("g", grads)  # capture the gradient instead of applying it
+    ag.opt.last = {}  # the stubbed step records no optimizer telemetry
+    ag._train()
+
+    def loss():
+        H, L = ag.enc.forward(X), 0.0
+        for a, d in enumerate(ag.dnds):
+            m = A == a
+            if m.any():
+                nb, dd = d.knn(H[m])
+                k = 1 / (dd + d.delta)
+                L += 0.5 * ((((k / k.sum(1, keepdims=True)) * d.vals[nb]).sum(1) - R[m]) ** 2).sum()
+        return L / len(X)
+
+    for p, g in zip(ag.enc.params(), got["g"]):
+        for i in np.ndindex(p.shape):
+            old = p[i]
+            p[i] = old + 1e-6; up = loss()
+            p[i] = old - 1e-6; down = loss()
+            p[i] = old
+            assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-7)
