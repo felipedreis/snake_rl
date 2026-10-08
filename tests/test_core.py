@@ -334,15 +334,12 @@ def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
     assert sum(f["end"] is not None for f in fs) == 2 and all(f["a"] in (0, 1, 2) for f in fs if f["end"] is None)
 
 
-def test_watch_replays_the_food_rule_and_epsilon_of_the_checkpoint_step(tmp_path):
-    from snake_rl.watch import load
+def test_checkpoint_records_the_run_settings(tmp_path):
+    import pickle
     main("random", 0, 300, size=9, root=str(tmp_path), food_curriculum=(2, 100, 400), food_relocate=True,
-         save_agent=True, save_every=100)
-    stem = tmp_path / "g9_d0" / "random_fc2-100-400_reloc_s0"
-    _, board, food, eps, _ = load(f"{stem}.agent_t100.pkl", 7, "open", 0, 0)
-    assert board["size"] == 9 and food == dict(radius=2, relocate=True) and eps == epsilon(100)
-    _, _, food, _, _ = load(f"{stem}.agent.pkl", 7, "open", 0, 0)
-    assert food == dict(radius=food_radius(300, (2, 100, 400), 9), relocate=True)
+         save_agent=True)
+    ck = pickle.load(open(tmp_path / "g9_d0" / "random_fc2-100-400_reloc_s0.agent.pkl", "rb"))
+    assert ck["t"] == 300 and ck["size"] == 9 and ck["food_curriculum"] == (2, 100, 400) and ck["food_relocate"]
 
 
 def test_nec_encoder_gradient_matches_finite_differences():

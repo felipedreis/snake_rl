@@ -395,7 +395,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM
 .venv/bin/snake-train results/g25_d0_rooms_b5/nec_dqncnn_*_s601.json
 
 # watch a saved checkpoint play
-.venv/bin/snake-watch results/g25_d0_rooms_b5/nec_dqncnn_*_s601.agent_t25000.pkl   # food as in training at that step
+.venv/bin/snake-watch results/g25_d0_rooms_b5/nec_dqncnn_*_s601.agent_t25000.pkl --food-radius 2 --relocate
 
 .venv/bin/pytest   # gradient checks, RNG-neutrality checks, smoke runs of every agent
 ```

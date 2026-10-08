@@ -1,15 +1,11 @@
 """Watch an agent play: in the terminal (default), in a matplotlib window (--gui), or saved to a GIF (--gif).
 
-usage: snake-watch AGENT [--episodes N] [--eps E|train] [--delay S] [--seed K] [--food-radius R|any] [--[no-]relocate]
+usage: snake-watch AGENT [--episodes N] [--eps E] [--delay S] [--seed K] [--food-radius R [--relocate]]
                          [--gui | --gif OUT.gif [--max-frames N]] [--size n --map M --bonus B]
   AGENT is a checkpoint from `snake-run ... --save-agent` / `--save-every K` (<stem>.agent.pkl), which carries its own
   board settings, or a registered agent name (an untrained agent; give the board with --size/--map/--bonus).
-  Food placement defaults to what training used at the checkpoint's step: the food curriculum's radius at that step
-  (held fixed while watching) and its relocation setting. Once the curriculum has ended, food goes anywhere, as in
-  the real game; --food-radius / --relocate override this (checkpoints from before these settings were saved start
-  from food anywhere, no relocation).
-  The agent acts as in evaluation (t=None: no learning, no memory bookkeeping) with ε = --eps (default 0: greedy;
-  `train`: the training schedule's ε at the checkpoint's step), drawing from its own watch RNG, so a checkpoint can be watched any number of times without changing it.
+  The agent acts as in evaluation (t=None: no learning, no memory bookkeeping) with ε = --eps (default 0: greedy),
+  drawing from its own watch RNG, so a checkpoint can be watched any number of times without changing it.
 
 Terminal keys: space pause/resume · + / - faster/slower · n next episode · q quit.
 Side panel: the Q-value the agent assigns to each relative action (straight / right / left) at this step, and the
@@ -26,7 +22,6 @@ import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
 from snake_rl.env import MAPS, Snake
-from snake_rl.run import epsilon as train_epsilon, food_radius as curriculum_radius
 
 ACTIONS = ("straight", "right", "left")
 ARROWS = "↑→↓←"  # by env.dir: up, right, down, left
@@ -37,35 +32,17 @@ RGB = {"empty": (0.12, 0.13, 0.15), "wall": (0.55, 0.58, 0.62), "body": (0.10, 0
 
 
 def load(spec, size, map, bonus, seed):
-    """-> (agent, Snake settings, food settings {radius, relocate}, training ε at the checkpoint's step, label).
-    The ε is None for an untrained agent or a checkpoint from before the run settings were saved."""
+    """-> (agent, Snake settings, label)."""
     if os.path.exists(spec):
         with open(spec, "rb") as f:
             ck = pickle.load(f)
         board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0))
-        # The food rule training used at step t (older checkpoints lack these keys: food anywhere, no relocation).
-        food = dict(radius=curriculum_radius(ck["t"], ck.get("food_curriculum"), ck["size"]),
-                    relocate=ck.get("food_relocate", False))
-        eps = train_epsilon(ck["t"], ck["eps_floor"], ck["eps_decay"]) if "eps_floor" in ck else None
-        return ck["agent"], board, food, eps, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
+        return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")
     board = dict(size=size, map=map, bonus=bonus, distractors=0)
     agent = make_agent(spec, Snake(**board), np.random.default_rng(seed))
-    return agent, board, dict(radius=None, relocate=False), None, f"{spec} (untrained)"
-
-
-def eps_line(eps, train_eps):
-    """The watch ε, and the training ε at the checkpoint's step when known."""
-    return f"ε {eps:g} watching" + ("" if train_eps is None else f" · training ε {train_eps:g} at this step")
-
-
-def food_rule(env):
-    """One-line description of where food is placed."""
-    if env.food_radius is None:
-        return "food anywhere"
-    rule = f"food within {env.food_radius} steps"
-    return rule + (f", relocated after {2 * env.food_radius + 5}" if env.relocate_food else "")
+    return agent, board, f"{spec} (untrained)"
 
 
 def q_values(agent, obs):
@@ -115,11 +92,10 @@ def cells(env):
     return g
 
 
-def panel(f, env, label, eps, train_eps, delay):
-    speed = f" · {1 / delay:.0f} steps/s" if delay > 0 else ""
-    lines = [f"\x1b[1m{label}\x1b[0m", eps_line(eps, train_eps) + speed, "",
+def panel(f, env, label, eps, delay):
+    lines = [f"\x1b[1m{label}\x1b[0m", f"ε {eps:g} · {1 / delay:.0f} steps/s" if delay > 0 else f"ε {eps:g}", "",
              f"episode {f['ep']}   step {f['step']}", f"score {env.score:g}   fruit {env.foods}   length {len(env.body)}",
-             f"heading {ARROWS[env.dir]}   idle {env.idle}/{env.max_idle}", food_rule(env)]
+             f"heading {ARROWS[env.dir]}   idle {env.idle}/{env.max_idle}"]
     if env.bonus_pos is not None:
         lines.append(f"\x1b[38;5;{TERM['bonus']}mbonus! {env.bonus_left} steps left\x1b[0m")
     lines.append("")
@@ -141,10 +117,10 @@ def panel(f, env, label, eps, train_eps, delay):
     return lines
 
 
-def draw_terminal(f, env, label, eps, train_eps, delay):
+def draw_terminal(f, env, label, eps, delay):
     g = cells(env)
     rows = ["".join(f"\x1b[48;5;{TERM[k]}m  " for k in row) + "\x1b[0m" for row in g]
-    side = panel(f, env, label, eps, train_eps, delay)
+    side = panel(f, env, label, eps, delay)
     out = ["\x1b[H"]
     for i in range(max(len(rows), len(side))):
         left = rows[i] if i < len(rows) else " " * (2 * env.n)
@@ -154,7 +130,7 @@ def draw_terminal(f, env, label, eps, train_eps, delay):
     sys.stdout.flush()
 
 
-def run_terminal(gen, env, label, eps, train_eps, delay):
+def run_terminal(gen, env, label, eps, delay):
     tty = sys.stdin.isatty()
     if tty:
         import termios
@@ -168,7 +144,7 @@ def run_terminal(gen, env, label, eps, train_eps, delay):
             if skip and not f["end"]:
                 continue
             skip = False
-            draw_terminal(f, env, label, eps, train_eps, delay)
+            draw_terminal(f, env, label, eps, delay)
             wait = delay * (6 if f["end"] else 1)
             deadline = time.time() + wait
             while tty and (paused or time.time() < deadline):
@@ -187,7 +163,7 @@ def run_terminal(gen, env, label, eps, train_eps, delay):
                 elif k == "n":
                     skip, paused = True, False
                     break
-                draw_terminal(f, env, label, eps, train_eps, delay)
+                draw_terminal(f, env, label, eps, delay)
             if not tty:
                 time.sleep(wait)
     except KeyboardInterrupt:
@@ -198,7 +174,7 @@ def run_terminal(gen, env, label, eps, train_eps, delay):
         sys.stdout.write("\x1b[?25h\n")
 
 
-def run_matplotlib(gen, env, label, eps, train_eps, delay, gif=None, max_frames=600):
+def run_matplotlib(gen, env, label, eps, delay, gif=None, max_frames=600):
     import matplotlib
     if gif:
         matplotlib.use("Agg")
@@ -228,8 +204,8 @@ def run_matplotlib(gen, env, label, eps, train_eps, delay, gif=None, max_frames=
                 b.set_color("#2a78d6" if a == f["a"] else "#8a8984")
             lim = max(1e-3, np.abs(q).max()) * 1.15
             axq.set_xlim(-lim, lim)
-        status.set_text((f"episode over: {f['end']}" if f["end"] else
-                         (f"memory distance {f['dist']:.3g}" if f["dist"] is not None else "")) + "\n" + food_rule(env) + "\n" + eps_line(eps, train_eps))
+        status.set_text(f"episode over: {f['end']}" if f["end"] else
+                        (f"memory distance {f['dist']:.3g}" if f["dist"] is not None else ""))
         return [img, title, status, *bars]
 
     def on_key(e):
@@ -252,15 +228,11 @@ def cli():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("agent", help="checkpoint (.agent.pkl) or agent name")
     ap.add_argument("--episodes", type=int, default=5)
-    ap.add_argument("--eps", default="0", metavar="E|train",
-                    help="exploration while watching (default 0: greedy; train: the training ε at the checkpoint's step)")
+    ap.add_argument("--eps", type=float, default=0.0, help="exploration while watching (default 0: greedy)")
     ap.add_argument("--delay", type=float, default=0.08, help="seconds per step")
     ap.add_argument("--seed", type=int, default=0, help="seed of the watch env and its exploration")
-    ap.add_argument("--food-radius", default=None, metavar="R|any",
-                    help="place food within R walkable steps of the head, or 'any' (default: as in training at the "
-                         "checkpoint's step)")
-    ap.add_argument("--relocate", action=argparse.BooleanOptionalAction, default=None,
-                    help="re-place food uneaten for 2R+5 steps near the head (default: as in training)")
+    ap.add_argument("--food-radius", type=int, default=None, help="place food within R steps (as in training)")
+    ap.add_argument("--relocate", action="store_true", help="re-place uneaten food near the head (needs --food-radius)")
     ap.add_argument("--gui", action="store_true", help="matplotlib window instead of the terminal")
     ap.add_argument("--gif", default=None, help="save a GIF instead of showing")
     ap.add_argument("--max-frames", type=int, default=600, help="GIF length cap")
@@ -268,26 +240,16 @@ def cli():
     ap.add_argument("--map", default="open", choices=MAPS)
     ap.add_argument("--bonus", type=float, default=0.0)
     a = ap.parse_args()
-    agent, board, food, train_eps, label = load(a.agent, a.size, a.map, a.bonus, a.seed)
-    if a.eps == "train" and train_eps is None:
-        sys.exit("--eps train needs a checkpoint that records its epsilon schedule")
-    eps = train_eps if a.eps == "train" else float(a.eps)
-    if a.food_radius is not None:
-        food["radius"] = None if a.food_radius == "any" else int(a.food_radius)
-    if a.relocate is not None:
-        food["relocate"] = a.relocate
-    if food["relocate"] and food["radius"] is None:
-        print("note: relocation only acts with a food radius; food goes anywhere here (see --food-radius)",
-              file=sys.stderr)
-    env = Snake(seed=a.seed + 5000, relocate_food=food["relocate"], **board)
-    gen = frames(agent, env, eps, a.episodes, np.random.default_rng(a.seed + 6000), food["radius"])
+    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed)
+    env = Snake(seed=a.seed + 5000, relocate_food=a.relocate, **board)
+    gen = frames(agent, env, a.eps, a.episodes, np.random.default_rng(a.seed + 6000), a.food_radius)
     if a.gif:
         import itertools
-        run_matplotlib(itertools.islice(gen, a.max_frames), env, label, eps, train_eps, a.delay, a.gif, a.max_frames)
+        run_matplotlib(itertools.islice(gen, a.max_frames), env, label, a.eps, a.delay, a.gif, a.max_frames)
     elif a.gui:
-        run_matplotlib(gen, env, label, eps, train_eps, a.delay)
+        run_matplotlib(gen, env, label, a.eps, a.delay)
     else:
-        run_terminal(gen, env, label, eps, train_eps, a.delay)
+        run_terminal(gen, env, label, a.eps, a.delay)
 
 
 if __name__ == "__main__":
