@@ -1,0 +1,6 @@
+pilot gate, results/exp_nec_ladder_paper_eps/pilot, seeds [1, 2, 3]; random LATE = 0.009, margin 0.5
+  dqn        n=3  LATE 0.069  FAIL
+  dqn_nstep  n=3  LATE 0.040  FAIL
+  ec_frozen  n=3  LATE 0.084  FAIL
+  nec        n=3  LATE 0.005  FAIL
+gate FAILED: 0/4 ladder agents clear the floor (need 3)

@@ -22,6 +22,19 @@ AGENTS = {
                                              refresh_every=1000),
     "nec_bonus": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
                                            bonus_beta=0.3),
+    # CNN encoders (the paper's architecture family): same agents, conv trunk instead of MLP
+    "dqn_cnn": lambda env, rng: DQNAgent(env.obs_dim, env.n_actions, rng, N=1, encoder="cnn", obs_shape=env.obs_shape),
+    "dqn_nstep_cnn": lambda env, rng: DQNAgent(env.obs_dim, env.n_actions, rng, N=N, encoder="cnn",
+                                               obs_shape=env.obs_shape),
+    "ec_frozen_cnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=False, N=N,
+                                               encoder="cnn", obs_shape=env.obs_shape),
+    "nec_cnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
+                                         encoder="cnn", obs_shape=env.obs_shape),
+    # DQN-shaped CNN (32 3x3/1, 64 3x3/2, 64 3x3/2, FC 512): the paper's encoder family scaled to the grid
+    "dqn_dqncnn": lambda env, rng: DQNAgent(env.obs_dim, env.n_actions, rng, N=1, encoder="dqncnn",
+                                            obs_shape=env.obs_shape),
+    "nec_dqncnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
+                                            encoder="dqncnn", obs_shape=env.obs_shape),
 }
 
 

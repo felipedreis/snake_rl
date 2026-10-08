@@ -8,7 +8,7 @@ from snake_rl.agents.mfec import MFECAgent
 from snake_rl.env import Snake
 from snake_rl.nn import MLP
 from snake_rl.returns import NStep
-from snake_rl.run import main
+from snake_rl.run import epsilon, food_radius, main
 
 
 def test_mlp_backward_matches_finite_differences():
@@ -68,9 +68,10 @@ def test_mfec_backward_max_update_and_lookup():
     assert ag.bufs[1].lookup(s0, 0) == 0.0                  # empty buffer
 
 
+@pytest.mark.parametrize("kw", [{}, {"map": "pillars", "bonus": 3.0}], ids=["open", "pillars+bonus"])
 @pytest.mark.parametrize("name", sorted(AGENTS))
-def test_agent_runs(name):
-    env, rng = Snake(size=5, seed=0), np.random.default_rng(0)
+def test_agent_runs(name, kw):
+    env, rng = Snake(size=7 if kw else 5, seed=0, **kw), np.random.default_rng(0)
     agent = make_agent(name, env, rng)
     obs = env.reset()
     for t in range(1, 301):
@@ -88,3 +89,282 @@ def test_run_writes_results(tmp_path):
     main("dqn", 3, 500, D=1, size=6, root=str(tmp_path), eps_floor=0.1)
     d = json.load(open(tmp_path / "g6_d1" / "dqn_eps0.1_s3.json"))
     assert d["agent"] == "dqn" and d["eps_floor"] == 0.1
+
+
+def test_episode_log_splits_bonus_points_and_truncation(tmp_path):
+    main("random", 0, 4000, size=6, root=str(tmp_path), map="rooms", bonus=5)
+    e = np.array(json.load(open(tmp_path / "g6_d0_rooms_b5" / "random_s0.json"))["episodes"])
+    t, score, foods, trunc = e.T
+    bonus = (score - foods) / 5
+    assert e.shape[1] == 4 and np.all(bonus >= 0) and np.allclose(bonus, np.round(bonus))
+    assert set(trunc) <= {0, 1}
+
+
+def test_convnet_backward_matches_finite_differences():
+    from snake_rl.nn import ConvNet
+    rng = np.random.default_rng(0)
+    net = ConvNet((2, 4, 4), convs=[3, 2], fcs=[5, 3], rng=rng)
+    x, y = rng.normal(size=(3, 2 * 16)), rng.normal(size=(3, 3))
+    loss = lambda: 0.5 * ((net.forward(x) - y) ** 2).sum()
+    loss()
+    grads = net.backward(net.forward(x) - y)
+    for p, g in zip(net.params(), grads):
+        for i in np.ndindex(p.shape):
+            old = p[i]
+            p[i] = old + 1e-6; up = loss()
+            p[i] = old - 1e-6; down = loss()
+            p[i] = old
+            assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-6)
+
+
+def test_open_env_unchanged_by_new_options():
+    a, b = Snake(size=7, seed=3, distractors=1), Snake(size=7, seed=3, distractors=1, map="open", bonus=0.0)
+    assert a.obs_shape == (4, 7, 7)
+    oa, ob = a.reset(), b.reset()
+    arng = np.random.default_rng(1)
+    for _ in range(200):
+        act = int(arng.integers(3))
+        (oa, ra, ta, _), (ob, rb, tb, _) = a.step(act), b.step(act)
+        assert np.array_equal(oa, ob) and ra == rb and ta == tb
+        if ta:
+            oa, ob = a.reset(), b.reset()
+
+
+@pytest.mark.parametrize("name", ["pillars", "walls", "rooms"])
+@pytest.mark.parametrize("size", [7, 9, 12])
+def test_maps_are_valid(name, size):
+    env = Snake(size=size, map=name)  # raises if the start is blocked or the free area is split
+    assert env.walls.any() and env.obs_shape == (4, size, size)
+    env.reset()
+    assert env.food not in env.wall_set
+    obs = env.step(0)[0].reshape(env.obs_shape)
+    assert obs[3].sum() == env.walls.sum()
+
+
+def test_wall_kills():
+    env = Snake(size=7, map="rooms")  # row 3 is walled at cols 5,6; heading right from (3,3)
+    env.reset()
+    rs = [env.step(0) for _ in range(2)]
+    assert rs[-1][2] and rs[-1][1] == -1.0
+
+
+def test_bonus_food_lifecycle():
+    env = Snake(size=7, bonus=5.0, bonus_every=1, bonus_life=3, seed=0)
+    assert env.obs_shape == (4, 7, 7)
+    env.reset()
+    env.food = (3, 4)  # right ahead
+    obs, r, _, _ = env.step(0)
+    assert r == 1.0 and env.bonus_pos is not None and env.bonus_left == 3
+    assert obs.reshape(env.obs_shape)[3].max() == 1.0
+    env.bonus_pos = (0, 0)  # park it out of the way; it must vanish after bonus_life steps
+    for _ in range(2):
+        env.step(0)
+        assert env.bonus_pos is not None
+    env.step(0)
+    assert env.bonus_pos is None
+
+
+def test_bonus_food_pays_and_grows():
+    env = Snake(size=7, bonus=5.0, seed=0)
+    env.reset()
+    env.bonus_pos, env.bonus_left = (3, 4), 5
+    _, r, term, _ = env.step(0)
+    assert r == 5.0 and not term and env.score == 5 and env.bonus_pos is None and len(env.body) == 3
+
+
+def test_epsilon_schedules():
+    assert [epsilon(t) for t in (0, 2500, 4950, 9999)] == [1.0, 0.5, 0.02, 0.02]  # original schedule
+    assert epsilon(0, 0.1, 250_000) == 1.0 and abs(epsilon(125_000, 0.1, 250_000) - 0.55) < 1e-12
+    assert epsilon(250_000, 0.1, 250_000) == 0.1 == epsilon(10**6, 0.1, 250_000)       # DQN: 1 -> 0.1, then flat
+    assert epsilon(0, 0.005, 0) == 0.005 == epsilon(10**5, 0.005, 0)                   # fixed epsilon
+
+
+def test_eps_decay_is_recorded_and_tagged(tmp_path):
+    main("random", 0, 300, size=6, root=str(tmp_path), eps_floor=0.005, eps_decay=0)
+    d = json.load(open(tmp_path / "g6_d0" / "random_eps0.005_epsd0_s0.json"))
+    assert d["eps_floor"] == 0.005 and d["eps_decay"] == 0
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
+def test_evaluation_does_not_change_training(name, tmp_path):
+    kw = dict(size=6, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
+    main(name, 4, 1500, root=str(tmp_path / "eval"), eval_every=500, eval_episodes=2, **kw)
+    stem = f"g6_d0_rooms_b5/{name}_eps0.05_epsd600_s4.json"
+    a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "eval"))
+    assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
+    assert [t for t, _ in b["evaluations"]] == [500, 1000, 1500]
+    assert all(len(eps) == 2 and all(len(e) == 4 for e in eps) for _, eps in b["evaluations"])
+
+
+def test_food_radius_keeps_food_within_walkable_reach():
+    env, rng = Snake(size=15, seed=2, map="rooms", food_radius=3), np.random.default_rng(0)
+    placed, new_food = 0, True
+    env.reset()
+    for _ in range(3000):
+        if new_food:  # the radius applies at the moment food is placed; afterwards the snake moves on
+            assert env._steps_from_head()[env.food] <= 3
+            placed += 1
+        before = env.food
+        _, r, term, trunc = env.step(int(rng.integers(3)))
+        new_food = env.food != before
+        if term or trunc:
+            env.reset()
+            new_food = True
+    assert placed > 100
+
+
+def test_food_curriculum_schedule_and_run_tag(tmp_path):
+    assert food_radius(5, None, 25) is None
+    assert food_radius(0, (2, 100), 25) == 2 and food_radius(50, (2, 100), 25) == 26
+    assert food_radius(100, (2, 100), 25) is None  # curriculum over: anywhere, as in the real game
+    main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 200))
+    d = json.load(open(tmp_path / "g6_d0" / "random_fc2-200_s0.json"))
+    assert d["food_curriculum"] == [2, 200]
+
+
+def test_food_curriculum_hold_then_grow():
+    fc = (2, 250_000, 600_000)
+    assert food_radius(0, fc, 25) == 2 == food_radius(249_999, fc, 25)        # held
+    assert food_radius(425_000, fc, 25) == 26 and food_radius(600_000, fc, 25) is None
+    assert [food_radius(t, (2, 600_000), 25) for t in (0, 137_500, 599_999)] == [2, 13, 49]  # v3 form unchanged
+
+
+def test_food_relocation_moves_uneaten_food_near_the_head():
+    env = Snake(size=15, seed=1, map="rooms", food_radius=3, relocate_food=True)
+    env.reset()
+    env.food, env.food_age = (0, 0), 2 * 3 + 5 - 1     # far away, one step short of the patience
+    env.step(0)                                         # straight ahead from the centre: safe, eats nothing
+    assert env.food != (0, 0) and env._steps_from_head()[env.food] <= 3 and env.food_age == 0
+    off = Snake(size=15, seed=1, map="rooms", food_radius=3)  # relocation off: the food stays put
+    off.reset()
+    off.food, off.food_age = (0, 0), 100
+    off.step(0)
+    assert off.food == (0, 0)
+
+
+def test_relocation_needs_a_curriculum(tmp_path):
+    with pytest.raises(ValueError):
+        main("random", 0, 10, size=6, root=str(tmp_path), food_relocate=True)
+    main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 100, 200), food_relocate=True)
+    d = json.load(open(tmp_path / "g6_d0" / "random_fc2-100-200_reloc_s0.json"))
+    assert d["food_curriculum"] == [2, 100, 200] and d["food_relocate"] is True
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
+def test_probe_does_not_change_training(name, tmp_path):
+    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
+    main(name, 4, 1500, root=str(tmp_path / "probe"), probe_every=500, **kw)
+    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4.json"
+    a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "probe"))
+    assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
+    assert [t for t, _ in b["probes"]] == [0, 500, 1000, 1500]
+    if hasattr(make_agent(name, Snake(size=7, map="rooms", bonus=5), np.random.default_rng(0)), "probe_embed"):
+        assert all(0 <= m["steer"] <= 1 and 0 <= m["decode"] <= 1 for _, m in b["probes"])
+
+
+def test_probe_set_labels():
+    from snake_rl.probe import make_probe_set, steering
+    P = make_probe_set(size=9, map="open", n_configs=20)
+    assert len(set(P["group"])) == 20 and P["good"].any(1).all()  # food within 2 steps is always reachable
+    # A Q that ranks exactly the good actions on top steers perfectly; a constant Q scores the chance rate.
+    assert steering(P["good"].astype(float), P)["steer"] == 1.0
+    s = steering(np.zeros(P["good"].shape), P)
+    assert s["steer"] == pytest.approx(s["steer_chance"])
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec", "dqn_cnn", "nec_cnn"])
+def test_train_telemetry_is_logged_and_streamed(name, tmp_path):
+    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "off"), train_log_every=0, **kw)
+    main(name, 4, 1500, root=str(tmp_path / "on"), train_log_every=500, **kw)
+    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4"
+    a, b = (json.load(open(tmp_path / r / f"{stem}.json")) for r in ("off", "on"))
+    assert a["episodes"] == b["episodes"] and a["train"] == []
+    live = [json.loads(l) for l in open(tmp_path / "on" / f"{stem}.train.jsonl")]  # kept after the run
+    assert [r.pop("t") for r in live] == [t for t, _ in b["train"]] and live == [s for _, s in b["train"]]
+    t, s = b["train"][-1]
+    assert t == 1500 and s["updates"] > 0 and np.isfinite(s["loss"]) and 0 <= s["clipped"] <= 1
+    assert all(k in s for k in ("td_abs", "q_taken", "target", "grad_norm", "update_ratio", "dead_relu"))
+
+
+def test_strided_convnet_backward_matches_finite_differences():
+    from snake_rl.nn import ConvNet
+    rng = np.random.default_rng(0)
+    net = ConvNet((2, 7, 7), convs=[(3, 3, 1), (2, 3, 2), (2, 3, 2)], fcs=[5, 3], rng=rng)
+    assert net.out_hw == 2  # 7 -> 7 -> 4 -> 2
+    x, y = rng.normal(size=(3, 2 * 49)), rng.normal(size=(3, 3))
+    loss = lambda: 0.5 * ((net.forward(x) - y) ** 2).sum()
+    loss()
+    grads = net.backward(net.forward(x) - y)
+    for p, g in zip(net.params(), grads):
+        for i in np.ndindex(p.shape):
+            old = p[i]
+            p[i] = old + 1e-6; up = loss()
+            p[i] = old - 1e-6; down = loss()
+            p[i] = old
+            assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-6)
+
+
+def test_dqn_shaped_cnn_on_the_25_grid():
+    from snake_rl.nn import ConvNet, DQN_CONVS, DQN_FC
+    net = ConvNet((5, 25, 25), DQN_CONVS, [DQN_FC, 32], np.random.default_rng(0))
+    assert [ho for _, _, _, ho in net.layers] == [25, 13, 7] and net.W[3].shape == (7 * 7 * 64, 512)
+    assert net.forward(np.zeros((2, 5 * 625))).shape == (2, 32)
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec_dqncnn", "mfec", "random"])
+def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
+    import pickle
+    from snake_rl.watch import frames
+    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
+    main(name, 4, 1500, root=str(tmp_path / "saved"), save_agent=True, save_every=500, **kw)
+    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4"
+    a, b = (json.load(open(tmp_path / r / f"{stem}.json")) for r in ("plain", "saved"))
+    assert a["episodes"] == b["episodes"]
+    for t in (500, 1000, 1500):
+        assert (tmp_path / "saved" / f"{stem}.agent_t{t}.pkl").exists()
+    ck = pickle.load(open(tmp_path / "saved" / f"{stem}.agent.pkl", "rb"))
+    assert ck["size"] == 7 and ck["map"] == "rooms" and ck["t"] == 1500
+    assert getattr(ck["agent"], "S", None) is None and getattr(ck["agent"], "R_obs", None) is None  # no replay saved
+    env = Snake(size=7, map="rooms", bonus=5, seed=0)
+    fs = list(frames(ck["agent"], env, 0.0, 2, np.random.default_rng(0), None))
+    assert sum(f["end"] is not None for f in fs) == 2 and all(f["a"] in (0, 1, 2) for f in fs if f["end"] is None)
+
+
+def test_nec_encoder_gradient_matches_finite_differences():
+    import copy
+    from snake_rl.agents.nec import NECAgent
+    rng = np.random.default_rng(0)
+    ag = NECAgent(6, 2, rng, key_dim=3, hidden=5, p=4, N=1, batch=8, mem_lr=0.0)  # mem_lr 0: memory left untouched
+    for d in ag.dnds:
+        for _ in range(10):
+            d._insert(rng.normal(size=3), rng.normal(), 0)
+    ag.R_obs[:20], ag.R_act[:20], ag.R_ret[:20] = rng.normal(size=(20, 6)), rng.integers(2, size=20), rng.normal(size=20)
+    ag.r_n = 20
+    idx = copy.deepcopy(ag.rng).integers(ag.r_n, size=ag.batch)  # the minibatch _train is about to draw
+    X, A, R = ag.R_obs[idx], ag.R_act[idx], ag.R_ret[idx]
+    got = {}
+    ag.opt.step = lambda grads: got.setdefault("g", grads)  # capture the gradient instead of applying it
+    ag.opt.last = {}  # the stubbed step records no optimizer telemetry
+    ag._train()
+
+    def loss():
+        H, L = ag.enc.forward(X), 0.0
+        for a, d in enumerate(ag.dnds):
+            m = A == a
+            if m.any():
+                nb, dd = d.knn(H[m])
+                k = 1 / (dd + d.delta)
+                L += 0.5 * ((((k / k.sum(1, keepdims=True)) * d.vals[nb]).sum(1) - R[m]) ** 2).sum()
+        return L / len(X)
+
+    for p, g in zip(ag.enc.params(), got["g"]):
+        for i in np.ndindex(p.shape):
+            old = p[i]
+            p[i] = old + 1e-6; up = loss()
+            p[i] = old - 1e-6; down = loss()
+            p[i] = old
+            assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-7)

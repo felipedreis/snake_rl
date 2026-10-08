@@ -42,6 +42,8 @@ class ECBuffer(KeyValueMemory):
         if self.n == 0:
             return 0.0
         j, nb = self._match(h, match_eps)
+        if t is None:  # evaluation: read only, no bookkeeping
+            return float(self.vals[j]) if j is not None else float(self.vals[nb].mean())
         self.stats["lookups"] += 1
         if j is not None:
             self.stats["exact_hits"] += 1

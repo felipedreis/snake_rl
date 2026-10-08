@@ -17,6 +17,8 @@ dev = ["pytest"]
 snake-run = "snake_rl.run:cli"
 snake-plot = "snake_rl.plot:cli"
 snake-peek = "snake_rl.peek:cli"
+snake-train = "snake_rl.trainplot:cli"
+snake-watch = "snake_rl.watch:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
