@@ -1,7 +1,7 @@
 """Run one (agent, seed) and save per-episode scores.
 
 usage: snake-run <agent> <seed> <steps> [--distractors D] [--size n] [--eps-floor F] [--eps-decay N]
-                 [--map M] [--bonus R] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
+                 [--map M] [--bonus R] [--render grid|pixels] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
                  [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
@@ -15,7 +15,7 @@ import time
 import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
-from snake_rl.env import MAPS, Snake
+from snake_rl.env import MAPS, RENDERS, Snake
 from snake_rl.probe import make_probe_set, probe
 
 
@@ -81,31 +81,31 @@ def save(agent, path, t, settings):
         pickle.dump(dict(agent=agent, t=t, **settings), f)
 
 
-def results_dir(D, size, root="results", map="open", bonus=0.0):
-    """results/d{D} (7x7) or g{size}_d{D}; a non-default map / bonus food adds _{map} / _b{bonus}."""
+def results_dir(D, size, root="results", map="open", bonus=0.0, render="grid"):
+    """results/d{D} (7x7) or g{size}_d{D}; a non-default map / bonus food / pixel render adds _{map} / _b{bonus} / _px."""
     base = f"{root}/d{D}" if size == 7 else f"{root}/g{size}_d{D}"
-    return base + ("" if map == "open" else f"_{map}") + (f"_b{bonus:g}" if bonus else "")
+    return base + ("" if map == "open" else f"_{map}") + (f"_b{bonus:g}" if bonus else "") + ("_px" if render == "pixels" else "")
 
 
 def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
-         probe_every=0, train_log_every=1000, save_agent=False, save_every=0):
+         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid"):
     if food_relocate and food_curriculum is None:
         raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
     env = Snake(size=size, seed=seed + 1000, distractors=D, map=map, bonus=bonus,
-                food_radius=food_radius(0, food_curriculum, size), relocate_food=food_relocate)
+                food_radius=food_radius(0, food_curriculum, size), relocate_food=food_relocate, render=render)
     agent = make_agent(name, env, rng)
     # Evaluation always places food anywhere: it measures the real task, whatever the training curriculum.
     if eval_every:  # own env and RNG streams, so evaluation never shifts training's random numbers
-        eval_env = Snake(size=size, seed=seed + 2000, distractors=D, map=map, bonus=bonus)
+        eval_env = Snake(size=size, seed=seed + 2000, distractors=D, map=map, bonus=bonus, render=render)
         eval_rng = np.random.default_rng(seed + 3000)
     # Representation probe (probe.py): a fixed hand-built state set, no rng shared with training.
-    P = make_probe_set(size, map, bonus) if probe_every and not D else None
+    P = make_probe_set(size, map, bonus, render=render) if probe_every and not D else None
     probes = [(0, probe(agent, P))] if P is not None else []
-    out_dir = results_dir(D, size, root, map, bonus)
+    out_dir = results_dir(D, size, root, map, bonus, render)
     stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate)}_s{seed}"
-    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, distractors=D, eps_floor=eps_floor,
+    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, distractors=D, eps_floor=eps_floor,
                     eps_decay=eps_decay, food_curriculum=food_curriculum, food_relocate=food_relocate)
     # Training telemetry (telemetry.py): window means every train_log_every steps. Also streamed, one JSON line per
     # snapshot, to <stem>.train.jsonl as the run goes (kept afterwards), so `snake-train` can plot a run in progress.
@@ -142,7 +142,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
                 live.write(json.dumps({"t": t, **s}) + "\n")
                 live.flush()
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
-           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "episodes": log, "diagnostics": diag,
+           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
            "evaluations": evals, "probes": probes, "train": train,
            "wallclock_s": time.time() - t0}
@@ -169,6 +169,9 @@ def cli():
                          "default: the original 5k-step schedule)")
     ap.add_argument("--map", default="open", choices=MAPS, help="obstacle layout")
     ap.add_argument("--bonus", type=float, default=0.0, help="reward of the timed bonus food (0 = off)")
+    ap.add_argument("--render", default="grid", choices=RENDERS,
+                    help="observation: 'grid' channels (default) or 'pixels', an 84x84 grayscale image with a "
+                         "4-frame stack as DQN/NEC see Atari (use the *_naturecnn agents)")
     ap.add_argument("--food-curriculum", default=None, metavar="R[:H]:N",
                     help="place food within R walkable steps of the head (held until step H), growing to the "
                          "whole board by step N, then anywhere (default: anywhere from the start)")
@@ -191,7 +194,7 @@ def cli():
     main(a.agent, a.seed, a.steps, D=a.distractors, size=a.size, root=a.results, eps_floor=a.eps_floor, map=a.map,
          bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
          eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
-         train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every)
+         train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render)
 
 
 if __name__ == "__main__":

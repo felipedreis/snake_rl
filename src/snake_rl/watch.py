@@ -21,7 +21,7 @@ import time
 import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
-from snake_rl.env import MAPS, Snake
+from snake_rl.env import MAPS, RENDERS, Snake
 
 ACTIONS = ("straight", "right", "left")
 ARROWS = "↑→↓←"  # by env.dir: up, right, down, left
@@ -31,16 +31,17 @@ RGB = {"empty": (0.12, 0.13, 0.15), "wall": (0.55, 0.58, 0.62), "body": (0.10, 0
        "head": (0.55, 0.95, 0.45), "food": (0.90, 0.22, 0.20), "bonus": (0.98, 0.78, 0.15)}
 
 
-def load(spec, size, map, bonus, seed):
+def load(spec, size, map, bonus, seed, render="grid"):
     """-> (agent, Snake settings, label)."""
     if os.path.exists(spec):
         with open(spec, "rb") as f:
             ck = pickle.load(f)
-        board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0))
+        board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0),
+                     render=ck.get("render", "grid"))
         return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")
-    board = dict(size=size, map=map, bonus=bonus, distractors=0)
+    board = dict(size=size, map=map, bonus=bonus, distractors=0, render=render)
     agent = make_agent(spec, Snake(**board), np.random.default_rng(seed))
     return agent, board, f"{spec} (untrained)"
 
@@ -239,8 +240,9 @@ def cli():
     ap.add_argument("--size", type=int, default=7, help="board for an untrained agent name")
     ap.add_argument("--map", default="open", choices=MAPS)
     ap.add_argument("--bonus", type=float, default=0.0)
+    ap.add_argument("--render", default="grid", choices=RENDERS, help="observation for an untrained agent name")
     a = ap.parse_args()
-    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed)
+    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed, a.render)
     env = Snake(seed=a.seed + 5000, relocate_food=a.relocate, **board)
     gen = frames(agent, env, a.eps, a.episodes, np.random.default_rng(a.seed + 6000), a.food_radius)
     if a.gif:

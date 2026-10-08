@@ -12,7 +12,7 @@ Target: G + disc * max_a Q_target(boot_obs, a), Huber loss, periodic target sync
 N=1 gives standard DQN; N>1 isolates the contribution of N-step returns.
 """
 import numpy as np
-from snake_rl.nn import MLP, ConvNet, Adam, DQN_CONVS, DQN_FC
+from snake_rl.nn import MLP, ConvNet, Adam, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -28,12 +28,15 @@ class DQNAgent:
       batch        transitions per training step (minibatch size).
       train_every  do one training step every this many env steps.
       target_every copy the online network into the target network every this many env steps.
-      encoder      "mlp", "cnn" (small stride-1 CNN, *_cnn) or "dqncnn" (DQN-shaped CNN, *_dqncnn); obs_shape
-                   is the (C, n, n) grid the CNNs need.
+      encoder      "mlp", "cnn" (small stride-1 CNN, *_cnn), "dqncnn" (DQN-shaped CNN, *_dqncnn) or "naturecnn" (DQN's
+                   exact network, for the 84x84 pixel render, *_naturecnn); obs_shape is the (C, n, n) grid the CNNs need.
+      obs_u8       keep replay observations as uint8 gray levels (k/255, what the pixel render produces) to save
+                   memory; exact for that render, and off (float64 rows) otherwise.
     """
 
     def __init__(self, obs_dim, n_actions, rng, N=1, gamma=0.99, hidden=64, lr=5e-4,
-                 replay_cap=50000, batch=32, train_every=4, target_every=1000, encoder="mlp", obs_shape=None):
+                 replay_cap=50000, batch=32, train_every=4, target_every=1000, encoder="mlp", obs_shape=None,
+                 obs_u8=False):
         # rng: the only source of randomness (exploration and minibatch sampling), for reproducibility.
         # nA: number of actions.
         self.rng, self.nA = rng, n_actions
@@ -43,6 +46,8 @@ class DQNAgent:
             net = lambda: ConvNet(obs_shape, [16, 32], [hidden, n_actions], rng)
         elif encoder == "dqncnn":  # DQN's conv shape scaled to the grid, FC 512 (see nn.ConvNet)
             net = lambda: ConvNet(obs_shape, DQN_CONVS, [DQN_FC, n_actions], rng)
+        elif encoder == "naturecnn":  # DQN's own network on 84x84 frames
+            net = lambda: ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, n_actions], rng)
         else:
             net = lambda: MLP([obs_dim, hidden, hidden, n_actions], rng)
         # q: the "online" Q-network, observation -> one Q-value per action. This is what we train.
@@ -59,10 +64,12 @@ class DQNAgent:
         # Replay buffer: a circular array of past transitions; row j is one training example.
         # Training on random old rows instead of only the latest step breaks the strong correlation
         # between consecutive steps and lets every experience be learned from many times.
-        self.S = np.zeros((replay_cap, obs_dim))  # State: observation in which the action was taken
+        self.u8 = obs_u8
+        odt = np.uint8 if obs_u8 else np.float64
+        self.S = np.zeros((replay_cap, obs_dim), odt)  # State: observation in which the action was taken
         self.A = np.zeros(replay_cap, np.int64)   # Action taken
         self.G = np.zeros(replay_cap)             # Gain: discounted sum of the next (up to) N rewards
-        self.B = np.zeros((replay_cap, obs_dim))  # Bootstrap observation: where we were N steps later
+        self.B = np.zeros((replay_cap, obs_dim), odt)  # Bootstrap observation: where we were N steps later
         self.D = np.zeros(replay_cap)             # Discount for the bootstrap: gamma^N, or 0 if the
                                                   #   episode ended (dead snake: no future reward)
         # n: rows filled so far; i: next row to write (wraps around, overwriting the oldest); cap: size.
@@ -81,7 +88,7 @@ class DQNAgent:
         # end all the pending ones). Store each as a replay row.
         for (o, act), G, boot, disc in self.nstep.push((obs, a), r, next_obs, term, trunc):
             j = self.i
-            self.S[j], self.A[j], self.G[j], self.B[j], self.D[j] = o, act, G, boot, disc
+            self.S[j], self.A[j], self.G[j], self.B[j], self.D[j] = self._put(o), act, G, self._put(boot), disc
             self.i = (self.i + 1) % self.cap
             self.n = min(self.n + 1, self.cap)
         # Train only once there are 1000 rows, so the first minibatches aren't drawn from a handful
@@ -90,6 +97,14 @@ class DQNAgent:
             self._train()
         if t % self.target_every == 0:
             self.qt.copy_from(self.q)
+
+    def _put(self, o):
+        """Observation -> replay row (uint8 gray levels when obs_u8, else unchanged)."""
+        return np.rint(o * 255) if self.u8 else o
+
+    def _get(self, rows):
+        """Replay rows -> network input; the inverse of _put (exact for the pixel render's k/255 values)."""
+        return rows.astype(np.float32) / np.float32(255) if self.u8 else rows
 
     def probe_embed(self, X):
         """Last hidden layer and Q-values for a batch of observations (probe.py). Read-only."""
@@ -103,8 +118,8 @@ class DQNAgent:
         """One gradient step on a random minibatch of replay rows."""
         idx = self.rng.integers(self.n, size=self.batch)  # random row numbers (with replacement)
         # Targets y, from the frozen target network: G + gamma^N * max_a Qt(boot_obs, a).
-        y = self.G[idx] + self.D[idx] * self.qt.forward(self.B[idx]).max(1)
-        Q = self.q.forward(self.S[idx])                    # (batch, nA) current estimates
+        y = self.G[idx] + self.D[idx] * self.qt.forward(self._get(self.B[idx])).max(1)
+        Q = self.q.forward(self._get(self.S[idx]))                    # (batch, nA) current estimates
         # Only the action actually taken has a target, so only its output gets an error signal.
         err = Q[np.arange(self.batch), self.A[idx]] - y
         g = np.zeros_like(Q)  # dL/dQ: zero for the actions not taken
