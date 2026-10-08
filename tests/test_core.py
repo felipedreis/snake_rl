@@ -249,3 +249,26 @@ def test_relocation_needs_a_curriculum(tmp_path):
     main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 100, 200), food_relocate=True)
     d = json.load(open(tmp_path / "g6_d0" / "random_fc2-100-200_reloc_s0.json"))
     assert d["food_curriculum"] == [2, 100, 200] and d["food_relocate"] is True
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
+def test_probe_does_not_change_training(name, tmp_path):
+    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
+    main(name, 4, 1500, root=str(tmp_path / "probe"), probe_every=500, **kw)
+    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4.json"
+    a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "probe"))
+    assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
+    assert [t for t, _ in b["probes"]] == [0, 500, 1000, 1500]
+    if hasattr(make_agent(name, Snake(size=7, map="rooms", bonus=5), np.random.default_rng(0)), "probe_embed"):
+        assert all(0 <= m["steer"] <= 1 and 0 <= m["decode"] <= 1 for _, m in b["probes"])
+
+
+def test_probe_set_labels():
+    from snake_rl.probe import make_probe_set, steering
+    P = make_probe_set(size=9, map="open", n_configs=20)
+    assert len(set(P["group"])) == 20 and P["good"].any(1).all()  # food within 2 steps is always reachable
+    # A Q that ranks exactly the good actions on top steers perfectly; a constant Q scores the chance rate.
+    assert steering(P["good"].astype(float), P)["steer"] == 1.0
+    s = steering(np.zeros(P["good"].shape), P)
+    assert s["steer"] == pytest.approx(s["steer_chance"])

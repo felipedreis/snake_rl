@@ -86,6 +86,14 @@ class DQNAgent:
         if t % self.target_every == 0:
             self.qt.copy_from(self.q)
 
+    def probe_embed(self, X):
+        """Last hidden layer and Q-values for a batch of observations (probe.py). Read-only."""
+        Z, Q = [], []
+        for lo in range(0, len(X), 256):  # chunked: CNN im2col buffers are large
+            Q.append(self.q.forward(X[lo:lo + 256]))
+            Z.append(self.q.cache[-2] if isinstance(self.q, MLP) else self.q.cache[-1])  # input to the output layer
+        return np.concatenate(Z), np.concatenate(Q)
+
     def _train(self):
         """One gradient step on a random minibatch of replay rows."""
         idx = self.rng.integers(self.n, size=self.batch)  # random row numbers (with replacement)

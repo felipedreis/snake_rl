@@ -182,6 +182,12 @@ class NECAgent:
                     hi = min(lo + 1024, d.n)
                     d.keys[lo:hi] = self.enc.forward(d.obs[lo:hi])
 
+    def probe_embed(self, X):
+        """Keys and Q-values for a batch of observations (probe.py). Read-only: no LRU marks, no rng draws."""
+        Z = np.concatenate([self.enc.forward(X[lo:lo + 256]) for lo in range(0, len(X), 256)])
+        Q = np.stack([d.lookup(Z) for d in self.dnds], 1)
+        return Z, Q
+
     def diagnostics(self):
         """Per action: write counters, rows in use, mean and largest absolute stored value."""
         out = {}

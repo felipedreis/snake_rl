@@ -2,6 +2,7 @@
 
 usage: snake-run <agent> <seed> <steps> [n_distractor_channels] [grid_size] [--eps-floor F] [--eps-decay N]
                  [--map M] [--bonus R] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
+                 [--probe-every K]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
 """
@@ -14,6 +15,7 @@ import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
 from snake_rl.env import MAPS, Snake
+from snake_rl.probe import make_probe_set, probe
 
 
 EPS_FLOOR = 0.02
@@ -77,7 +79,8 @@ def results_dir(D, size, root="results", map="open", bonus=0.0):
 
 
 def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
-         eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False):
+         eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
+         probe_every=0):
     if food_relocate and food_curriculum is None:
         raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
@@ -88,6 +91,9 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
     if eval_every:  # own env and RNG streams, so evaluation never shifts training's random numbers
         eval_env = Snake(size=size, seed=seed + 2000, distractors=D, map=map, bonus=bonus)
         eval_rng = np.random.default_rng(seed + 3000)
+    # Representation probe (probe.py): a fixed hand-built state set, no rng shared with training.
+    P = make_probe_set(size, map, bonus) if probe_every and not D else None
+    probes = [(0, probe(agent, P))] if P is not None else []
     obs = env.reset()
     log, diag, evals, t0 = [], [], [], time.time()
     for t in range(1, steps + 1):
@@ -106,10 +112,12 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
             diag.append((t, agent.diagnostics()))
         if eval_every and t % eval_every == 0:
             evals.append((t, evaluate(agent, eval_env, eval_rng, eval_episodes, eval_eps)))
+        if P is not None and t % probe_every == 0:
+            probes.append((t, probe(agent, P)))
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
            "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
-           "evaluations": evals,
+           "evaluations": evals, "probes": probes,
            "wallclock_s": time.time() - t0}
     out_dir = results_dir(D, size, root, map, bonus)
     os.makedirs(out_dir, exist_ok=True)
@@ -140,11 +148,13 @@ def cli():
                     help="every K steps, play evaluation episodes on a separate env (0 = off)")
     ap.add_argument("--eval-episodes", type=int, default=5, help="episodes per evaluation")
     ap.add_argument("--eval-eps", type=float, default=0.05, help="epsilon during evaluation (DQN paper: 0.05)")
+    ap.add_argument("--probe-every", type=int, default=0,
+                    help="every K steps, measure the encoder and greedy steering on a fixed probe set (probe.py)")
     ap.add_argument("--results", default="results", help="results root directory")
     a = ap.parse_args()
     fc = tuple(int(x) for x in a.food_curriculum.split(":")) if a.food_curriculum else None
     main(a.agent, a.seed, a.steps, a.distractors, a.size, a.results, a.eps_floor, a.map, a.bonus, a.eps_decay,
-         a.eval_every, a.eval_episodes, a.eval_eps, fc, a.food_relocate)
+         a.eval_every, a.eval_episodes, a.eval_eps, fc, a.food_relocate, a.probe_every)
 
 
 if __name__ == "__main__":
