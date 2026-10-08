@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
 STEPS=400000
-ENV="0 25 --map rooms --bonus 5 --food-curriculum 2:250000:600000 --food-relocate"
+ENV="--size 25 --map rooms --bonus 5 --food-curriculum 2:250000:600000 --food-relocate"
 EXPL="--eps-floor 0.05 --eps-decay 50000"   # identical for every agent
 MEAS="--eval-every 25000 --eval-episodes 5 --eval-eps 0.05 --probe-every 25000"
 ROOT=results/exp_encoder_probe

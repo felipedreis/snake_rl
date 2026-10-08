@@ -29,7 +29,7 @@ jobs() {  # one line per run: agent seed
 
 mkdir -p logs
 echo "start $1 steps=$STEPS $(date -u +%FT%TZ)" >> "$LOG"
-jobs | xargs -P 8 -L 1 sh -c '.venv/bin/snake-run "$0" "$1" '"$STEPS 0 $SIZE --map $MAP --bonus $BONUS --results $ROOT" \
+jobs | xargs -P 8 -L 1 sh -c '.venv/bin/snake-run "$0" "$1" '"$STEPS --size $SIZE --map $MAP --bonus $BONUS --results $ROOT" \
   >> "$LOG" 2>&1
 echo "end $1 $(date -u +%FT%TZ)" >> "$LOG"
 n=$(ls $ROOT/g${SIZE}_d0_${MAP}_b${BONUS}/*.json | wc -l)

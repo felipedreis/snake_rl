@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
 STEPS=1000000   # 4M Atari-equivalent frames (action repeat 4); fixed, the gate cannot change it
-ENV="0 25 --map rooms --bonus 5 --food-curriculum 2:250000:600000 --food-relocate"  # training only; eval: food anywhere
+ENV="--size 25 --map rooms --bonus 5 --food-curriculum 2:250000:600000 --food-relocate"  # training only; eval: food anywhere
 EVAL="--eval-every 10000 --eval-episodes 5 --eval-eps 0.05"
 
 case "${1:-}" in

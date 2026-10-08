@@ -1,6 +1,6 @@
 """Run one (agent, seed) and save per-episode scores.
 
-usage: snake-run <agent> <seed> <steps> [n_distractor_channels] [grid_size] [--eps-floor F] [--eps-decay N]
+usage: snake-run <agent> <seed> <steps> [--distractors D] [--size n] [--eps-floor F] [--eps-decay N]
                  [--map M] [--bonus R] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
                  [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
@@ -73,11 +73,12 @@ def evaluate(agent, env, rng, episodes, eps):
     return out
 
 
-def save(agent, path, name, seed, t, size, map, bonus, D):
-    """Pickle the agent (without its replay buffer) plus the env settings snake-watch needs to replay it."""
+def save(agent, path, t, settings):
+    """Pickle the agent (without its replay buffer) at step t, plus the run settings snake-watch needs to replay it
+    on the board it was trained on (food curriculum and relocation included)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
-        pickle.dump(dict(agent=agent, name=name, seed=seed, t=t, size=size, map=map, bonus=bonus, distractors=D), f)
+        pickle.dump(dict(agent=agent, t=t, **settings), f)
 
 
 def results_dir(D, size, root="results", map="open", bonus=0.0):
@@ -86,7 +87,7 @@ def results_dir(D, size, root="results", map="open", bonus=0.0):
     return base + ("" if map == "open" else f"_{map}") + (f"_b{bonus:g}" if bonus else "")
 
 
-def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
+def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
          probe_every=0, train_log_every=1000, save_agent=False, save_every=0):
     if food_relocate and food_curriculum is None:
@@ -104,6 +105,8 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
     probes = [(0, probe(agent, P))] if P is not None else []
     out_dir = results_dir(D, size, root, map, bonus)
     stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate)}_s{seed}"
+    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, distractors=D, eps_floor=eps_floor,
+                    eps_decay=eps_decay, food_curriculum=food_curriculum, food_relocate=food_relocate)
     # Training telemetry (telemetry.py): window means every train_log_every steps. Also streamed, one JSON line per
     # snapshot, to <stem>.train.jsonl as the run goes (kept afterwards), so `snake-train` can plot a run in progress.
     tlog = hasattr(agent, "train_stats") and train_log_every > 0
@@ -131,7 +134,7 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
         if P is not None and t % probe_every == 0:
             probes.append((t, probe(agent, P)))
         if save_every and t % save_every == 0:
-            save(agent, f"{stem}.agent_t{t}.pkl", name, seed, t, size, map, bonus, D)
+            save(agent, f"{stem}.agent_t{t}.pkl", t, settings)
         if tlog and t % train_log_every == 0:
             s = agent.train_stats()
             if s:
@@ -147,7 +150,7 @@ def main(name, seed, steps, D=0, size=7, root="results", eps_floor=EPS_FLOOR, ma
     with open(f"{stem}.json", "w") as f:
         json.dump(out, f)
     if save_agent:
-        save(agent, f"{stem}.agent.pkl", name, seed, steps, size, map, bonus, D)
+        save(agent, f"{stem}.agent.pkl", steps, settings)
     if tlog:
         live.close()
     print(run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate), seed, f"{len(log)} eps, {time.time()-t0:.0f}s")
@@ -158,8 +161,8 @@ def cli():
     ap.add_argument("agent", help=f"one of {sorted(AGENTS)}")
     ap.add_argument("seed", type=int)
     ap.add_argument("steps", type=int)
-    ap.add_argument("distractors", type=int, nargs="?", default=0, help="extra noise channels")
-    ap.add_argument("size", type=int, nargs="?", default=7, help="grid size")
+    ap.add_argument("--distractors", type=int, default=0, help="extra noise channels")
+    ap.add_argument("--size", type=int, default=7, help="grid size")
     ap.add_argument("--eps-floor", type=float, default=EPS_FLOOR, help="final epsilon after the decay")
     ap.add_argument("--eps-decay", type=int, default=None,
                     help="steps for epsilon to fall linearly from 1 to the floor (0 = fixed at the floor; "
@@ -185,8 +188,10 @@ def cli():
     ap.add_argument("--results", default="results", help="results root directory")
     a = ap.parse_args()
     fc = tuple(int(x) for x in a.food_curriculum.split(":")) if a.food_curriculum else None
-    main(a.agent, a.seed, a.steps, a.distractors, a.size, a.results, a.eps_floor, a.map, a.bonus, a.eps_decay,
-         a.eval_every, a.eval_episodes, a.eval_eps, fc, a.food_relocate, a.probe_every, a.train_log_every, a.save_agent, a.save_every)
+    main(a.agent, a.seed, a.steps, D=a.distractors, size=a.size, root=a.results, eps_floor=a.eps_floor, map=a.map,
+         bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
+         eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
+         train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every)
 
 
 if __name__ == "__main__":

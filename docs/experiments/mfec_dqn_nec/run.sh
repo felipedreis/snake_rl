@@ -22,6 +22,6 @@ jobs() {  # one line per run: agent seed steps distractors size
 
 mkdir -p logs
 echo "start $(date -u +%FT%TZ)" >> "$LOG"
-jobs | xargs -P 8 -L 1 sh -c '.venv/bin/snake-run "$0" "$1" "$2" "$3" "$4" --results '"$ROOT" >> "$LOG" 2>&1
+jobs | xargs -P 8 -L 1 sh -c '.venv/bin/snake-run "$0" "$1" "$2" --distractors "$3" --size "$4" --results '"$ROOT" >> "$LOG" 2>&1
 echo "end $(date -u +%FT%TZ)" >> "$LOG"
 echo "result files: $(ls $ROOT/*/*.json | wc -l) (expected 120)"
