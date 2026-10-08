@@ -125,6 +125,16 @@ flowchart LR
 | Small CNN | conv 16 3×3/1 → conv 32 3×3/1 → FC 64 → head | ~1.29M (99.5% in the FC reading 25×25×32 = 20,000 features) | `nec_cnn`, `dqn_cnn` |
 | DQN-shaped CNN (new) | conv 32 3×3/1 → conv 64 3×3/2 → conv 64 3×3/2 → FC 512 → head; map 25 → 13 → 7 | ~1.67M | `nec_dqncnn`, `dqn_dqncnn` |
 
+![The NEC paper's encoder: DQN's CNN on Atari](figures/nec_paper_architecture.png)
+
+*The paper's encoder (DQN's network on 84×84 Atari frames). Strided convolutions shrink the image to a 7×7 map
+before the one dense layer, whose output is either DQN's Q-values or NEC's key.*
+
+![Our small CNN on the 25×25 board](figures/nec_our_architecture.png)
+
+*Our small CNN (`*_cnn`). Stride 1 throughout, so the map stays 25×25, and the dense layer reads 20,000
+position-specific features. It holds 99.5% of the weights.*
+
 The DQN-shaped CNN copies the shape of DQN's network (Mnih et al., 2015: 32 8×8/4 → 64 4×4/2 → 64 3×3/1 →
 FC 512). It is scaled to the grid so that the map entering the dense layer is 7×7, as on Atari. The paper
 says only that NEC uses "the same convolutional architecture as DQN". It does not report the key size,
@@ -244,6 +254,13 @@ the head's distance from the start cell:
   - its convolutions are shared across the board, but the dense layer reading 625 positions is not;
   - in every arm, the embedding is organised by where the snake is, not by where the food is relative to
     it.
+
+![Why a dense layer over the board ties skills to positions](figures/position_bound_features.png)
+
+*Why skills end up tied to positions. Shared convolutions detect "food 2 ahead, 1 left" wherever it occurs.
+The flatten-and-dense step gives each board cell its own weights, though, so what is learned at A does not
+transfer to B. Global pooling, shown for contrast, is not part of the paper's architecture: we drew it as a
+possible diagnostic, not a proposed fix.*
 
 ![Probe metrics over training](experiments/encoder_food_probe_g25/probe_curves.png)
 
@@ -390,4 +407,5 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM
 | `results/exp_*/` | raw per-run JSON of every experiment above |
 | `logs/` | stdout of every sweep |
 | `figures/health/` | the telemetry figures in section 7 |
+| `docs/figures/` | the architecture diagrams in sections 3 and 6 |
 | `README.md` | commands and options; `CLAUDE.md`, notes on the code's conventions |
