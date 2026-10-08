@@ -11,8 +11,8 @@ A study project: Neural Episodic Control (Pritzel et al., 2017) and other agents
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # once; then use .venv/bin/...
 
-snake-run nec 1 40000                 # agent seed steps [distractors=0] [size=7] [--results DIR]
-snake-run nec_refresh 2 60000 0 10    # -> results/g10_d0/nec_refresh_s2.json
+snake-run nec 1 40000                 # agent seed steps [--distractors 0] [--size 7] [--results DIR]
+snake-run nec_refresh 2 60000 --size 10   # -> results/g10_d0/nec_refresh_s2.json
 snake-run nec_cnn 1 40000 --map rooms --bonus 5   # maps: open pillars walls rooms -> results/d0_rooms_b5/
 snake-plot results/d0                 # -> figures/learning_curves_d0.png, tables on stdout
 snake-peek results/g10_d0/nec_*.json  # per-seed 6k-step bins + per-action DND write shares
@@ -33,7 +33,7 @@ Sweeps are plain shell loops over `snake-run`. Their stdout goes in `logs/`, and
 - `nn.py`: `ConvNet` (same interface as `MLP`, selected with `encoder="cnn"` (small stride-1) or `"dqncnn"` (DQN-shaped: 32 3x3/1, 64 3x3/2, 64 3x3/2, FC 512; 25->13->7) + `obs_shape` in `NECAgent`/`DQNAgent`; `*_cnn` / `*_dqncnn` registry entries) follows the same cache rule. `MLP.backward` uses the activations cached by the most recent `forward`, so never call `forward` again between a forward and its backward. NEC's `act` caches the embedding in `self._h` for `observe`, so those two calls must stay paired.
 - `probe.py` (`--probe-every K`): every K steps (and at 0) scores the agent on a fixed hand-built state set (short straight snakes, food within 2 walkable steps): greedy steering accuracy and how well the embedding separates the egocentric food offset (kNN purity, ridge read-out, food/position distance ratio). Agents opt in with a read-only `probe_embed(X) -> (Z, Q)` (NEC: keys; DQN: last hidden layer). Results land in the JSON's `probes`; training is unchanged with it on (tested).
 - Telemetry: agents with gradient training keep a `TrainStats` (`telemetry.py`) fed once per update (`Adam.last` adds grad norm, clip, update/weight ratio) and expose `train_stats()`. run.py snapshots it every `--train-log-every` (1000) steps into the JSON's `train` and streams it to `<stem>.train.jsonl` while running (kept afterwards). Pure bookkeeping: RNG-neutral (checked against committed runs).
-- Checkpoints: agents' `__getstate__` drops replay buffers, so a pickle can act (snake-watch) but not resume training. `ConvNet` drops its im2col caches.
+- Checkpoints: agents' `__getstate__` drops replay buffers, so a pickle can act (snake-watch) but not resume training. The pickle also carries the run settings (`run.save`), and snake-watch replays the food rule of step t (curriculum radius, relocation) unless overridden. `ConvNet` drops its im2col caches.
 - `returns.py`: `NStep` produces `(payload, G, boot_obs, disc)` tuples, and every agent forms its target as `G + disc * max Q(boot_obs)`. `disc=0` only on true termination. Truncation still bootstraps.
 - `agents/nec.py`: there is one `DND` per action. Exact brute-force kNN is used, and LRU eviction is keyed on "last used as a neighbour". Learning happens on two timescales:
   - Fast: tabular `write` (it updates on an exact key match, otherwise it appends).

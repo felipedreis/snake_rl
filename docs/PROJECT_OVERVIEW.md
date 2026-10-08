@@ -389,13 +389,13 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1   # bit-for-bit runs
 
 # one 25x25 health-check run (as in section 7), then its training curves
-.venv/bin/snake-run nec_dqncnn 601 100000 0 25 --map rooms --bonus 5 \
+.venv/bin/snake-run nec_dqncnn 601 100000 --size 25 --map rooms --bonus 5 \
     --food-curriculum 2:250000:600000 --food-relocate --eps-floor 0.05 --eps-decay 50000 \
     --probe-every 25000 --save-every 25000
 .venv/bin/snake-train results/g25_d0_rooms_b5/nec_dqncnn_*_s601.json
 
 # watch a saved checkpoint play
-.venv/bin/snake-watch results/g25_d0_rooms_b5/nec_dqncnn_*_s601.agent_t25000.pkl --food-radius 2 --relocate
+.venv/bin/snake-watch results/g25_d0_rooms_b5/nec_dqncnn_*_s601.agent_t25000.pkl   # food as in training at that step
 
 .venv/bin/pytest   # gradient checks, RNG-neutrality checks, smoke runs of every agent
 ```

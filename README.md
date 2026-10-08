@@ -14,8 +14,9 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 
 ## Usage
 
-    snake-run nec 1 40000 4        # 4th arg: distractor channels -> results/d4/nec_s1.json
-    snake-run nec 1 40000 0 10     # 5th arg: grid size           -> results/g10_d0/nec_s1.json
+    snake-run nec 1 40000          # agent, seed, steps           -> results/d0/nec_s1.json
+    snake-run nec 1 40000 --distractors 4   # noise channels      -> results/d4/nec_s1.json
+    snake-run nec 1 40000 --size 10         # grid size           -> results/g10_d0/nec_s1.json
     snake-run nec 1 40000 --map rooms --bonus 5   # obstacles + bonus food -> results/d0_rooms_b5/nec_s1.json
     snake-plot results/d0          # -> figures/learning_curves_d0.png + tables on stdout
     snake-plot results/d0_rooms_b5 # -> figures/learning_curves_d0_rooms_b5.png
@@ -79,7 +80,7 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
       .#...#.    ..#####    ...#...
       .......    .......    ...#...
 
-  Example: `snake-run dqn 1 40000 0 10 --map walls` writes `results/g10_d0_walls/dqn_s1.json`. Map, bonus, grid size and
+  Example: `snake-run dqn 1 40000 --size 10 --map walls` writes `results/g10_d0_walls/dqn_s1.json`. Map, bonus, grid size and
   distractors all combine, and each combination gets its own results dir, so `snake-plot` never mixes them.
 - `--bonus R`: Nokia-style bonus food worth R points, appearing after every 4 regular foods for 2n steps. The
   observation has an extra channel holding its remaining lifetime fraction. It grows the snake like normal food.
@@ -105,7 +106,7 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
   what large boards make hard: on 25x25 `rooms`, food starts on average ~13 steps from the head, and only 7% of
   placements are within 5. Evaluation runs always place food anywhere.
 
-      snake-run nec 1 1000000 0 25 --map rooms --bonus 5 --food-curriculum 2:400000 --eval-every 10000
+      snake-run nec 1 1000000 --size 25 --map rooms --bonus 5 --food-curriculum 2:400000 --eval-every 10000
       # -> results/g25_d0_rooms_b5/nec_fc2-400000_s1.json
 
 ## Watching training and the agent
@@ -126,12 +127,15 @@ field.
 
 **Watching the agent play.** `--save-agent` pickles the trained agent to `<run>.agent.pkl`, and `--save-every K`
 adds checkpoints `<run>.agent_t{K}.pkl` along the way. The replay buffer is left out, so a checkpoint can act but not
-resume training. `snake-watch` plays it on the board it was trained on:
+resume training. A checkpoint also records the run's settings, and `snake-watch` plays it on the board it was trained on,
+with the food placement training used at that step (the curriculum's radius then, held fixed, and relocation if it was
+on; food anywhere once the curriculum is over). The side panel says which food rule is in force:
 
     snake-watch results/d0/dqn_cnn_s1.agent.pkl                  # terminal, greedy
     snake-watch results/d0/dqn_cnn_s1.agent.pkl --gui            # matplotlib window
     snake-watch results/d0/dqn_cnn_s1.agent.pkl --gif out.gif    # save an animation
-    snake-watch <checkpoint> --food-radius 2 --relocate          # with the training curriculum's food placement
+    snake-watch <checkpoint> --food-radius 2 --relocate          # override the food placement (or --food-radius any,
+                                                                 # --no-relocate)
     snake-watch dqn --size 25 --map rooms --bonus 5              # an untrained agent, for comparison
 
 The side panel shows the score, the Q-value the agent gives each action (straight, right, left) with the chosen one
