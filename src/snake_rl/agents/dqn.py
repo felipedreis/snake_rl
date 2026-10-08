@@ -12,7 +12,7 @@ Target: G + disc * max_a Q_target(boot_obs, a), Huber loss, periodic target sync
 N=1 gives standard DQN; N>1 isolates the contribution of N-step returns.
 """
 import numpy as np
-from snake_rl.nn import MLP, ConvNet, Adam, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
+from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -97,6 +97,10 @@ class DQNAgent:
             self._train()
         if t % self.target_every == 0:
             self.qt.copy_from(self.q)
+
+    def set_optimizer(self, kind="adam", lr=None):
+        """Swap the optimizer ('adam' or 'rmsprop', see nn.py) and/or its learning rate; call before training starts."""
+        self.opt = make_optimizer(kind, self.q.params(), self.opt.lr if lr is None else lr)
 
     def _put(self, o):
         """Observation -> replay row (uint8 gray levels when obs_u8, else unchanged)."""

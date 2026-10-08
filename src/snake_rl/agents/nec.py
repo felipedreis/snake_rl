@@ -30,7 +30,7 @@ periodically re-embeds all keys with the current encoder, removing key drift.
 """
 import numpy as np
 from snake_rl.agents.memory import KeyValueMemory
-from snake_rl.nn import MLP, ConvNet, Adam, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
+from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -194,6 +194,10 @@ class NECAgent:
                 for lo in range(0, d.n, 1024):  # chunked: CNN im2col buffers are large
                     hi = min(lo + 1024, d.n)
                     d.keys[lo:hi] = self.enc.forward(d.obs[lo:hi])
+
+    def set_optimizer(self, kind="adam", lr=None):
+        """Swap the optimizer ('adam' or 'rmsprop', see nn.py) and/or its learning rate; call before training starts."""
+        self.opt = make_optimizer(kind, self.enc.params(), self.opt.lr if lr is None else lr)
 
     def probe_embed(self, X):
         """Keys and Q-values for a batch of observations (probe.py). Read-only: no LRU marks, no rng draws."""

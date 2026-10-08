@@ -478,3 +478,36 @@ def test_pixel_probe_set_matches_the_grid_one():
     b = make_probe_set(size=9, map="open", n_configs=10, render="pixels")
     assert b["X"].shape == (len(a["X"]), 4 * 84 * 84)
     assert np.array_equal(a["group"], b["group"]) and np.array_equal(a["off"], b["off"]) and np.array_equal(a["good"], b["good"])
+
+
+def test_rmsprop_step_matches_hand_computation():
+    from snake_rl.nn import RMSProp
+    p = [np.array([1.0, -2.0])]
+    opt = RMSProp(p, lr=0.1, rho=0.5, eps=0.25, clip=100.0)
+    opt.step([np.array([2.0, -4.0])])
+    v = 0.5 * np.array([4.0, 16.0])  # (1 - rho) g^2
+    assert np.allclose(p[0], np.array([1.0, -2.0]) - 0.1 * np.array([2.0, -4.0]) / (np.sqrt(v) + 0.25))
+    assert opt.last["grad_norm"] == pytest.approx(np.sqrt(20.0)) and opt.last["clipped"] == 0.0
+    opt.step([np.array([2.0, -4.0])])  # second step: v = rho v + (1 - rho) g^2
+    assert np.allclose(opt.v[0], 0.5 * v + 0.5 * np.array([4.0, 16.0]))
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec"])
+def test_optimizer_setting_is_recorded_tagged_and_changes_training(name, tmp_path):
+    from snake_rl.nn import Adam, RMSProp
+    kw = dict(size=6, eps_floor=0.05, eps_decay=300)
+    main(name, 4, 1500, root=str(tmp_path), **kw)
+    main(name, 4, 1500, root=str(tmp_path), opt="rmsprop", lr=1e-4, **kw)
+    a = json.load(open(tmp_path / "g6_d0" / f"{name}_eps0.05_epsd300_s4.json"))
+    b = json.load(open(tmp_path / "g6_d0" / f"{name}_rmsprop_lr0.0001_eps0.05_epsd300_s4.json"))
+    assert (a["opt"], a["lr"], b["opt"], b["lr"]) == ("adam", None, "rmsprop", 1e-4)
+    assert a["episodes"] != b["episodes"]
+    ag = make_agent(name, Snake(size=6), np.random.default_rng(0))
+    assert isinstance(ag.opt, Adam) and ag.opt.lr == 5e-4  # the default is untouched
+    ag.set_optimizer("rmsprop", 1e-4)
+    assert isinstance(ag.opt, RMSProp) and ag.opt.lr == 1e-4 and ag.opt.p[0] is (ag.q if name == "dqn" else ag.enc).params()[0]
+
+
+def test_optimizer_setting_needs_an_agent_with_one(tmp_path):
+    with pytest.raises(ValueError):
+        main("mfec", 0, 100, size=6, root=str(tmp_path), opt="rmsprop")

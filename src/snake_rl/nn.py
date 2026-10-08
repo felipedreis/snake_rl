@@ -235,3 +235,43 @@ class Adam:
         # was relative to the weights (~1e-3 is the usual healthy range; much larger = thrashing, much smaller = stalled).
         self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
                          update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+
+
+class RMSProp:
+    """RMSProp (Tieleman & Hinton, 2012), the optimizer of the DQN and NEC papers, with the same global-norm clipping
+    and the same `last` telemetry as Adam.
+
+    Divides each gradient by a running RMS of its recent values: v <- rho v + (1 - rho) g^2, p <- p - lr g / (sqrt(v) + eps).
+    Unlike Adam there is no momentum and no bias correction, and the large eps (NEC paper family: rho 0.95, eps 1e-2)
+    keeps steps small wherever gradients are small, so it moves little when gradients are tiny (e.g. ±1 rewards).
+    eps is added outside the root (PyTorch's convention); TensorFlow's RMSPropOptimizer adds it inside.
+    """
+
+    def __init__(self, params, lr, clip=10.0, rho=0.95, eps=1e-2):
+        self.p, self.lr, self.clip, self.rho, self.eps = params, lr, clip, rho, eps
+        self.v = [np.zeros_like(x) for x in params]
+        self.t = 0
+
+    def step(self, grads):
+        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
+        scale = min(1.0, self.clip / (norm + 1e-12))
+        self.t += 1
+        step2 = par2 = 0.0
+        for p, g, v in zip(self.p, grads, self.v):
+            g = g * scale
+            v[...] = self.rho * v + (1 - self.rho) * g * g
+            u = self.lr * g / (np.sqrt(v) + self.eps)
+            step2 += (u ** 2).sum()
+            par2 += (p ** 2).sum()
+            p -= u
+        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
+                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+
+
+OPTIMIZERS = {"adam": Adam, "rmsprop": RMSProp}
+
+
+def make_optimizer(kind, params, lr):
+    if kind not in OPTIMIZERS:
+        raise ValueError(f"unknown optimizer {kind!r}; choose from {sorted(OPTIMIZERS)}")
+    return OPTIMIZERS[kind](params, lr)
