@@ -140,7 +140,8 @@ on; food anywhere once the curriculum is over). The side panel says which food r
 
 The side panel shows the score, the Q-value the agent gives each action (straight, right, left) with the chosen one
 marked and, for NEC, how far the current situation is from its memories. Terminal keys: space pause, `+`/`-` speed,
-`n` next episode, `q` quit. Other options: `--episodes N`, `--eps E` (default 0, greedy), `--delay S`, `--seed K`.
+`n` next episode, `q` quit. Other options: `--episodes N`, `--eps E` (default 0, greedy; `--eps train` uses the training schedule's ε at the
+checkpoint's step, which the panel always shows next to the watch ε), `--delay S`, `--seed K`.
 Watching never changes the checkpoint.
 
 **Representation probe.** `--probe-every K` scores the agent every K steps on a fixed set of states with food at most
