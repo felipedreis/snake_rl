@@ -1,0 +1,21 @@
+# OMP_NUM_THREADS=1 ... python snapshot.py <agent> 501 250000 <dir>/<agent>501.pkl, then python diag.py <dir> nec dqn / nec_cnn dqn_cnn
+
+nec_cnn: greedy play 4000 steps: 26 episodes, 1.9 fruit/100 steps; steer 0.47 vs chance 0.42
+  on-policy steer by head distance from start: d0-2: 0.86 (n=102)  d3-5: 0.42 (n=144)  d6-9: 0.46 (n=169)  d10-24: 0.46 (n=3520)
+  share of on-policy states per bin: 0.03  0.04  0.04  0.89
+  probe steer by head distance: d0-2: 0.46 (n=155)  d3-5: 0.40 (n=566)  d6-9: 0.40 (n=2387)  d10-24: 0.39 (n=9919)  chance 0.40
+  probe: share of states with all-tied Q: 0.00
+
+dqn_cnn: greedy play 4000 steps: 23 episodes, 11.0 fruit/100 steps; steer 0.42 vs chance 0.34
+  on-policy steer by head distance from start: d0-2: 0.59 (n=226)  d3-5: 0.49 (n=171)  d6-9: 0.44 (n=210)  d10-24: 0.28 (n=354)
+  share of on-policy states per bin: 0.24  0.18  0.22  0.37
+  probe steer by head distance: d0-2: 0.61 (n=155)  d3-5: 0.58 (n=566)  d6-9: 0.46 (n=2387)  d10-24: 0.42 (n=9919)  chance 0.40
+  probe: share of states with all-tied Q: 0.00
+dqn 501 reproduces: True 7756
+nec 501 reproduces: True 17611
+dqn_cnn 501 reproduces: True 7202
+nec_cnn 501 reproduces: True 11769
+
+[exited with code 0]
+
+[exited with code 0]
