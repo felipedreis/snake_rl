@@ -155,8 +155,8 @@ original setup (7x7 open board, no bonus, the 5k-step epsilon schedule, food any
 
 ### `snake-run AGENT SEED STEPS [options]`
 
-Trains one agent for one seed and writes `<results>/<dir>/<stem>_s<SEED>.json`, where `<dir>` comes from the board
-options and `<stem>` is the agent name tagged with any non-default run settings (e.g. `nec_eps0.1_fc2-400000_reloc`).
+Trains one agent for one seed and writes `<results>/<dir>/<stem>_s<SEED>.json` (see
+[Result file names](#result-file-names)).
 
 | Argument | Default | Meaning |
 |---|---|---|
@@ -204,6 +204,40 @@ options and `<stem>` is the agent name tagged with any non-default run settings 
 | `--results DIR` | `results` | Results root directory. |
 | `--save-agent` | off | Pickle the trained agent to `<stem>.agent.pkl`, with the run's settings (no replay buffer: it can act, not resume). |
 | `--save-every K` | 0 (off) | Also pickle a checkpoint `<stem>.agent_t{t}.pkl` every K steps. |
+
+### Result file names
+
+A run's path is `<results>/<dir>/<stem>_s<SEED>.<ext>`. The **directory** names the board; the **file name** names
+the agent and every non-default training setting. Each part appears only when it differs from its default, in this order:
+
+| Part | Comes from | Default (no part) | Example |
+|---|---|---|---|
+| `<results>` | `--results DIR` | `results` | `results/exp_nec_ladder` |
+| `<dir>` start | `--distractors D`, `--size n` | | `d0` for 7x7, otherwise `g{n}_d{D}`, e.g. `g25_d0` |
+| `_{map}` | `--map M` | `open` | `_rooms` |
+| `_b{R}` | `--bonus R` | 0 | `_b5` |
+| `<stem>` start | `AGENT` | | `nec` |
+| `_eps{F}` | `--eps-floor F` | 0.02 | `_eps0.1` |
+| `_epsd{N}` | `--eps-decay N` | unset | `_epsd250000` |
+| `_fc{R}-{H}-{N}` | `--food-curriculum R[:H]:N` (as given: two or three numbers) | off | `_fc2-250000-600000` |
+| `_reloc` | `--food-relocate` | off | `_reloc` |
+| `_s{SEED}` | `SEED` | | `_s1` |
+
+For example, `snake-run dqn 1 1000000 --size 25 --map rooms --bonus 5 --eps-floor 0.1 --eps-decay 250000
+--food-curriculum 2:250000:600000 --food-relocate` writes
+`results/g25_d0_rooms_b5/dqn_eps0.1_epsd250000_fc2-250000-600000_reloc_s1.json`.
+
+Files written next to it share the same prefix:
+
+| File | Written when |
+|---|---|
+| `<stem>_s<SEED>.json` | Always: episodes, settings, diagnostics, evaluations, probes, telemetry. |
+| `<stem>_s<SEED>.train.jsonl` | The agent trains by gradient and `--train-log-every` is not 0 (streamed during the run). |
+| `<stem>_s<SEED>.agent.pkl` | `--save-agent`: the agent at the end of training. |
+| `<stem>_s<SEED>.agent_t{t}.pkl` | `--save-every K`: a checkpoint at every step t that is a multiple of K. |
+
+Settings that are not in the path (evaluation, probe and telemetry intervals) do not change training, so runs that
+differ only in them overwrite each other. `snake-plot` reads the settings from the JSON, not from the path.
 
 ### `snake-plot [DIR] [--out DIR]`
 
