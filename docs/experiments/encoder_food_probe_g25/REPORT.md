@@ -158,3 +158,33 @@ was exploration. This comparison was not pre-registered, and v4 differs in other
    the top-down observation. This tests "encoder" in the narrow sense the user asked about.
 3. **Make the probe a split metric:** report the distance-from-start split in `probe.py`, so that local
    islands of skill are visible without post-hoc work.
+
+## Addendum (2026-10-08): the NEC·CNN arm trained on a diverging embedding
+
+Training telemetry was added after this experiment (`snake-train`, `telemetry.py`). It shows that on this board,
+NEC's encoder output diverges when the encoder is a CNN.
+
+**The divergence:**
+- **Health-check runs:** `nec_cnn` (seed 601, this experiment's settings) goes from a key norm of 1 at
+  initialisation to about 2,800 within 1,200 steps.
+- **This experiment's own run:** the 250k snapshot of NEC·CNN seed 501 (section 4) has query keys with mean
+  norm **6.7 × 10³**, and stored keys at 1.1 × 10⁴. NEC·MLP's are 1.15.
+
+**What it is not:**
+- **Not a gradient bug:** NEC's hand-derived encoder gradient matches finite differences (new test
+  `test_nec_encoder_gradient_matches_finite_differences`).
+- **Not the CNN alone:** the same conv trunk trains stably under DQN's loss.
+- **Not on small boards:** on 7×7, `nec_cnn` stays bounded.
+
+**What the telemetry suggests (not yet tested):**
+- **No restoring force:** with distances much larger than δ, NEC's kernel weights are nearly invariant to the
+  embedding's scale, so nothing in the loss pulls the scale back.
+- **Weights align rather than grow:** weight norms barely change (1.0–2.2× by 1.2k steps), while about 80% of
+  the last hidden ReLUs die in the first few hundred steps.
+
+**Consequences for this report:**
+- **NEC·CNN's numbers** (sections 3–4) describe a broken encoder, not "a CNN encoder for NEC". Treat them as
+  invalid for the CNN-vs-MLP question on NEC.
+- **Unaffected:** the DQN arms and NEC·MLP were stable (key norm about 0.9–1.2; DQN telemetry healthy). The
+  main conclusion about position-bound steering rests on those arms, together with NEC·MLP's post-hoc
+  diagnostic.
