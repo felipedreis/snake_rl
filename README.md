@@ -29,6 +29,16 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 (`python -m snake_rl.run ...` etc. work too.) Every command prints its options with `--help`; the full list is in
 [Command reference](#command-reference) below.
 
+## Results data
+
+The raw results (run JSONs, training telemetry, saved agents) live on Hugging Face, not in git:
+[felipedreis/snake-rl-results](https://huggingface.co/datasets/felipedreis/snake-rl-results). To restore them:
+
+    hf download felipedreis/snake-rl-results --repo-type dataset --local-dir results
+
+The `.agent.pkl` files are Python pickles: only load them from a source you trust. `results/` and `*.agent.pkl` are in
+`.gitignore`; new runs still write there, and are not tracked.
+
 ## Layout
 
     src/snake_rl/
