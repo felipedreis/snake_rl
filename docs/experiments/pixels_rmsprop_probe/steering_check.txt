@@ -1,0 +1,30 @@
+
+exp_pixels_validate/d0_px/dqn_naturecnn_s1.agent.pkl  (step 60,000)
+  greedy play: 1.1 fruit/100 steps, 40 episodes
+  own states : steer 0.53 (chance 0.46);  by head distance from start: 0-2: 0.49 (n=1976)  3-5: 0.55 (n=1958)  6-9: 0.94 (n=66)
+  probe set  : steer 0.55 (chance 0.39); all-tied Q on 0% of probe states
+
+exp_pixels_validate/d0_px/nec_naturecnn_rmsprop_lr0.00025_s1.agent.pkl  (step 60,000)
+  greedy play: 2.1 fruit/100 steps, 58 episodes
+  own states : steer 0.56 (chance 0.46);  by head distance from start: 0-2: 0.51 (n=2020)  3-5: 0.60 (n=1914)  6-9: 0.76 (n=66)
+  probe set  : steer 0.41 (chance 0.39); all-tied Q on 0% of probe states
+
+exp_pixels_validate/g10_d0_px/dqn_naturecnn_s1.agent.pkl  (step 60,000)
+  greedy play: 0.2 fruit/100 steps, 19 episodes
+  own states : steer 0.51 (chance 0.48);  by head distance from start: 0-2: 0.49 (n=2932)  3-5: 0.60 (n=1032)  6-9: 0.22 (n=36)
+  probe set  : steer 0.46 (chance 0.40); all-tied Q on 0% of probe states
+
+exp_pixels_validate/g10_d0_px/nec_naturecnn_rmsprop_lr0.00025_s1.agent.pkl  (step 60,000)
+  greedy play: 0.1 fruit/100 steps, 19 episodes
+  own states : steer 0.51 (chance 0.46);  by head distance from start: 0-2: 0.40 (n=1569)  3-5: 0.58 (n=2431)
+  probe set  : steer 0.41 (chance 0.40); all-tied Q on 0% of probe states
+
+exp_pixels_validate/g25_d0_rooms_b5_px/dqn_naturecnn_eps0.05_epsd50000_fc2-250000-600000_reloc_s1.agent.pkl  (step 100,000, held phase)
+  greedy play: 13.9 fruit/100 steps, 91 episodes
+  own states : steer 0.54 (chance 0.34);  by head distance from start: 0-2: 0.64 (n=826)  3-5: 0.56 (n=518)  6-9: 0.34 (n=312)  10-99: 0.42 (n=222)
+  probe set  : steer 0.41 (chance 0.40); all-tied Q on 0% of probe states
+
+exp_pixels_validate/g25_d0_rooms_b5_px/nec_naturecnn_rmsprop_lr0.00025_eps0.05_epsd50000_fc2-250000-600000_reloc_s1.agent.pkl  (step 100,000, held phase)
+  greedy play: 19.1 fruit/100 steps, 200 episodes
+  own states : steer 0.59 (chance 0.37);  by head distance from start: 0-2: 0.86 (n=817)  3-5: 0.60 (n=995)  6-9: 0.43 (n=780)  10-99: 0.43 (n=657)
+  probe set  : steer 0.41 (chance 0.40); all-tied Q on 0% of probe states
