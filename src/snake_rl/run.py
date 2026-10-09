@@ -1,7 +1,7 @@
 """Run one (agent, seed) and save per-episode scores.
 
 usage: snake-run <agent> <seed> <steps> [--distractors D] [--size n] [--eps-floor F] [--eps-decay N]
-                 [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
+                 [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--actions relative|absolute] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
                  [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
@@ -15,7 +15,7 @@ import time
 import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
-from snake_rl.env import MAPS, RENDERS, Snake
+from snake_rl.env import ACTION_MODES, MAPS, RENDERS, Snake
 from snake_rl.probe import make_probe_set, probe
 
 
@@ -82,25 +82,25 @@ def save(agent, path, t, settings):
         pickle.dump(dict(agent=agent, t=t, **settings), f)
 
 
-def results_dir(D, size, root="results", map="open", bonus=0.0, render="grid", frame_stack=None, wall_scale=1.0):
+def results_dir(D, size, root="results", map="open", bonus=0.0, render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
     """results/d{D} (7x7) or g{size}_d{D}; a non-default map / bonus food / pixel render / frame stack / wall scale adds
-    _{map} / _b{bonus} / _px / _fs{K} / _ws{X}."""
+    _{map} / _b{bonus} / _px / _fs{K} / _ws{X} / _abs."""
     base = f"{root}/d{D}" if size == 7 else f"{root}/g{size}_d{D}"
     default_fs = 4 if render == "pixels" else 1
     return (base + ("" if map == "open" else f"_{map}") + (f"_b{bonus:g}" if bonus else "")
             + ("_px" if render == "pixels" else "") + ("" if frame_stack in (None, default_fs) else f"_fs{frame_stack}")
-            + ("" if wall_scale == 1.0 else f"_ws{wall_scale:g}"))
+            + ("" if wall_scale == 1.0 else f"_ws{wall_scale:g}") + ("" if actions == "relative" else "_abs"))
 
 
 def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
-         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0):
+         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0, actions="relative"):
     if food_relocate and food_curriculum is None:
         raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
     env = Snake(size=size, seed=seed + 1000, distractors=D, map=map, bonus=bonus,
                 food_radius=food_radius(0, food_curriculum, size), relocate_food=food_relocate, render=render,
-                frame_stack=frame_stack, wall_scale=wall_scale)
+                frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
     agent = make_agent(name, env, rng)
     if opt != "adam" or lr is not None:  # the agent's defaults (Adam 5e-4) unless asked; no rng draws
         if not hasattr(agent, "set_optimizer"):
@@ -109,14 +109,14 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
     # Evaluation always places food anywhere: it measures the real task, whatever the training curriculum.
     if eval_every:  # own env and RNG streams, so evaluation never shifts training's random numbers
         eval_env = Snake(size=size, seed=seed + 2000, distractors=D, map=map, bonus=bonus, render=render,
-                         frame_stack=frame_stack, wall_scale=wall_scale)
+                         frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
         eval_rng = np.random.default_rng(seed + 3000)
     # Representation probe (probe.py): a fixed hand-built state set, no rng shared with training.
-    P = make_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale) if probe_every and not D else None
+    P = make_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions) if probe_every and not D else None
     probes = [(0, probe(agent, P))] if P is not None else []
-    out_dir = results_dir(D, size, root, map, bonus, render, frame_stack, wall_scale)
+    out_dir = results_dir(D, size, root, map, bonus, render, frame_stack, wall_scale, actions)
     stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr)}_s{seed}"
-    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, distractors=D, eps_floor=eps_floor,
+    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, distractors=D, eps_floor=eps_floor,
                     eps_decay=eps_decay, food_curriculum=food_curriculum, food_relocate=food_relocate, opt=opt, lr=lr)
     # Training telemetry (telemetry.py): window means every train_log_every steps. Also streamed, one JSON line per
     # snapshot, to <stem>.train.jsonl as the run goes (kept afterwards), so `snake-train` can plot a run in progress.
@@ -153,7 +153,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
                 live.write(json.dumps({"t": t, **s}) + "\n")
                 live.flush()
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
-           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
+           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "actions": actions, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
            "evaluations": evals, "probes": probes, "train": train,
            "wallclock_s": time.time() - t0}
@@ -187,6 +187,9 @@ def cli():
                     help="stack the last K observations (default: 4 with --render pixels, 1 = off with the grid)")
     ap.add_argument("--wall-scale", type=float, default=1.0,
                     help="multiply the walls' value in the observation (0 hides them; they still kill). Ablation option")
+    ap.add_argument("--actions", default="relative", choices=ACTION_MODES,
+                    help="'relative' (straight / right / left, default) or 'absolute' (up / right / down / left, as an "
+                         "Atari joystick; a reversal keeps going straight)")
     ap.add_argument("--opt", default="adam", choices=["adam", "rmsprop"],
                     help="optimizer of the gradient-trained agents (rmsprop: rho 0.95, eps 1e-2, as in the DQN/NEC papers)")
     ap.add_argument("--lr", type=float, default=None, help="optimizer learning rate (default: the agent's, Adam 5e-4)")
@@ -213,7 +216,7 @@ def cli():
          bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
          eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
          train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render,
-         opt=a.opt, lr=a.lr, frame_stack=a.frame_stack, wall_scale=a.wall_scale)
+         opt=a.opt, lr=a.lr, frame_stack=a.frame_stack, wall_scale=a.wall_scale, actions=a.actions)
 
 
 if __name__ == "__main__":

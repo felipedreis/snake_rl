@@ -45,6 +45,7 @@ import numpy as np
 
 MAPS = ("open", "pillars", "walls", "rooms")
 RENDERS = ("grid", "pixels")
+ACTION_MODES = ("relative", "absolute")
 PIXELS = 84  # side of the pixel render, as in DQN's preprocessing
 # Gray level (0-255) of each thing in the pixel render; all distinct, and bonus 200-240 stays clear of the rest.
 GRAY = dict(wall=60, body=110, food=160, bonus=200, bonus_span=40, head=255)
@@ -91,7 +92,9 @@ class Snake:
 
     def __init__(self, size=7, max_idle=None, seed=0, distractors=0, noise_p=0.5,
                  map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None, relocate_food=False,
-                 render="grid", frame_stack=None, wall_scale=1.0):
+                 render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
+        if actions not in ACTION_MODES:
+            raise ValueError(f"unknown actions {actions!r}; choose from {ACTION_MODES}")
         if render not in RENDERS:
             raise ValueError(f"unknown render {render!r}; choose from {RENDERS}")
         if render == "pixels" and (distractors or size > PIXELS):
@@ -118,7 +121,8 @@ class Snake:
         start = [(c, c), (c, c - 1), (c, c + 1)]  # two body cells + the one straight ahead
         if any(self.walls[p] for p in start) or not _connected(~self.walls):
             raise ValueError(f"map {map!r} does not fit a {size}x{size} board")
-        self.n_actions = 3
+        self.actions = actions
+        self.n_actions = 3 if actions == "relative" else 4  # absolute: up, right, down, left
         self.channels = 3 + bool(self.wall_set) + (self.bonus_r > 0) + distractors
         self.obs_shape = (self.channels, size, size)
         if self.pixels:
@@ -126,6 +130,13 @@ class Snake:
         elif fs > 1:
             self.obs_shape = (self.channels * fs, size, size)  # the last fs grid observations, channels concatenated
         self.obs_dim = int(np.prod(self.obs_shape))
+
+    def heading_after(self, d, a):
+        """Heading after action `a` from heading `d`. Relative: straight / right / left. Absolute: the direction
+        `a` itself (index into DIRS); a reversal keeps going straight, as a joystick against the snake does."""
+        if self.actions == "relative":
+            return (d + (0, 1, -1)[a]) % 4
+        return d if a == (d + 2) % 4 else a
 
     def reset(self):
         c = self.n // 2
@@ -256,7 +267,7 @@ class Snake:
         return "\n".join("".join(row) for row in g)
 
     def step(self, a):
-        self.dir = (self.dir + (0, 1, -1)[a]) % 4
+        self.dir = self.heading_after(self.dir, a)
         dr, dc = self.DIRS[self.dir]
         hr, hc = self.body[0]
         nh = (hr + dr, hc + dc)

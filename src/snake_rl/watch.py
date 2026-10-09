@@ -8,7 +8,7 @@ usage: snake-watch AGENT [--episodes N] [--eps E] [--delay S] [--seed K] [--food
   drawing from its own watch RNG, so a checkpoint can be watched any number of times without changing it.
 
 Terminal keys: space pause/resume · + / - faster/slower · n next episode · q quit.
-Side panel: the Q-value the agent assigns to each relative action (straight / right / left) at this step, and the
+Side panel: the Q-value the agent assigns to each action (straight / right / left, or up / right / down / left) at this step, and the
 action it took; for NEC also the mean squared distance to the memory neighbours (how familiar the situation is).
 """
 import argparse
@@ -21,9 +21,9 @@ import time
 import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
-from snake_rl.env import MAPS, RENDERS, Snake
+from snake_rl.env import ACTION_MODES, MAPS, RENDERS, Snake
 
-ACTIONS = ("straight", "right", "left")
+ACTION_NAMES = dict(relative=("straight", "right", "left"), absolute=("up", "right", "down", "left"))
 ARROWS = "↑→↓←"  # by env.dir: up, right, down, left
 # 256-colour palette for the terminal grid; RGB twins for the matplotlib view.
 TERM = {"empty": 236, "wall": 244, "body": 34, "head": 46, "food": 196, "bonus": 220}
@@ -31,17 +31,18 @@ RGB = {"empty": (0.12, 0.13, 0.15), "wall": (0.55, 0.58, 0.62), "body": (0.10, 0
        "head": (0.55, 0.95, 0.45), "food": (0.90, 0.22, 0.20), "bonus": (0.98, 0.78, 0.15)}
 
 
-def load(spec, size, map, bonus, seed, render="grid"):
+def load(spec, size, map, bonus, seed, render="grid", actions="relative"):
     """-> (agent, Snake settings, label)."""
     if os.path.exists(spec):
         with open(spec, "rb") as f:
             ck = pickle.load(f)
         board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0),
-                     render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0))
+                     render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0),
+                     actions=ck.get("actions", "relative"))
         return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")
-    board = dict(size=size, map=map, bonus=bonus, distractors=0, render=render)
+    board = dict(size=size, map=map, bonus=bonus, distractors=0, render=render, actions=actions)
     agent = make_agent(spec, Snake(**board), np.random.default_rng(seed))
     return agent, board, f"{spec} (untrained)"
 
@@ -106,14 +107,14 @@ def panel(f, env, label, eps, delay):
         q = f["q"]
         lo, hi = min(q.min(), 0.0), max(q.max(), 1e-9)
         lines.append("Q-values (what the agent expects):")
-        for i, name in enumerate(ACTIONS):
+        for i, name in enumerate(ACTION_NAMES[env.actions]):
             bar = "█" * int(round(20 * (q[i] - lo) / (hi - lo + 1e-12)))
             mark = "\x1b[1m◀ taken\x1b[0m" if i == f["a"] else ""
             lines.append(f"  {name:8s} {q[i]:+7.3f} {bar:20s} {mark}")
         if f["dist"] is not None:
             lines.append(f"  memory distance {f['dist']:.3g}")
     else:
-        lines.append(f"action: {ACTIONS[f['a']]}")
+        lines.append(f"action: {ACTION_NAMES[env.actions][f['a']]}")
     lines += ["", "\x1b[2mspace pause · +/- speed · n next · q quit\x1b[0m"]
     return lines
 
@@ -186,7 +187,7 @@ def run_matplotlib(gen, env, label, eps, delay, gif=None, max_frames=600):
     img = ax.imshow(np.zeros((env.n, env.n, 3)), interpolation="nearest")
     ax.set_xticks([]), ax.set_yticks([])
     title = ax.set_title(label, fontsize=10)
-    bars = axq.barh(ACTIONS[::-1], [0, 0, 0], color="#8a8984")
+    bars = axq.barh(ACTION_NAMES[env.actions][::-1], [0] * env.n_actions, color="#8a8984")
     axq.set_title("Q-values (taken action highlighted)", fontsize=10)
     axq.axvline(0, color="#8a8984", lw=0.8)
     axq.spines[["top", "right"]].set_visible(False)
@@ -199,8 +200,8 @@ def run_matplotlib(gen, env, label, eps, delay, gif=None, max_frames=600):
         title.set_text(f"{label} · episode {f['ep']} · step {f['step']} · score {env.score:g}")
         if f["q"] is not None:
             q = f["q"]
-            for i, b in enumerate(bars):  # bars are drawn bottom-up: index 0 is "left"
-                a = 2 - i
+            for i, b in enumerate(bars):  # bars are drawn bottom-up: index 0 is the last action
+                a = env.n_actions - 1 - i
                 b.set_width(q[a])
                 b.set_color("#2a78d6" if a == f["a"] else "#8a8984")
             lim = max(1e-3, np.abs(q).max()) * 1.15
@@ -241,8 +242,9 @@ def cli():
     ap.add_argument("--map", default="open", choices=MAPS)
     ap.add_argument("--bonus", type=float, default=0.0)
     ap.add_argument("--render", default="grid", choices=RENDERS, help="observation for an untrained agent name")
+    ap.add_argument("--actions", default="relative", choices=ACTION_MODES, help="action space for an untrained agent name")
     a = ap.parse_args()
-    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed, a.render)
+    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed, a.render, a.actions)
     env = Snake(seed=a.seed + 5000, relocate_food=a.relocate, **board)
     gen = frames(agent, env, a.eps, a.episodes, np.random.default_rng(a.seed + 6000), a.food_radius)
     if a.gif:

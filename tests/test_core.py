@@ -578,3 +578,53 @@ def test_grid_stack_probe_set():
     g = make_probe_set(size=9, map="open", n_configs=10)
     assert P["X"].shape == (len(g["X"]), 3 * g["X"].shape[1])
     assert np.array_equal(P["X"][:, -g["X"].shape[1]:], g["X"])  # the newest frame is the plain probe state
+
+
+def test_absolute_actions_move_in_board_directions_and_ignore_reversals():
+    env = Snake(size=9, seed=1, actions="absolute")
+    assert env.n_actions == 4 and Snake(size=9).n_actions == 3
+    env.reset()  # heading right
+    head = env.body[0]
+    env.step(0)  # up
+    assert env.dir == 0 and env.body[0] == (head[0] - 1, head[1])
+    env.step(2)  # down is a reversal of up: keep going up
+    assert env.dir == 0 and env.body[0] == (head[0] - 2, head[1])
+    env.step(3)  # left
+    assert env.dir == 3
+    with pytest.raises(ValueError):
+        Snake(actions="diagonal")
+
+
+def test_absolute_probe_set_adds_only_the_reversal_direction():
+    from snake_rl.probe import make_probe_set
+    r = make_probe_set(size=9, map="open", n_configs=10)
+    a = make_probe_set(size=9, map="open", n_configs=10, actions="absolute")
+    assert a["good"].shape == (len(r["good"]), 4) and np.array_equal(a["X"], r["X"])
+    # Absolute actions add one direction, the reversal, which keeps going straight: it is good exactly when
+    # "straight" is. Every other direction is one of the three relative actions.
+    assert a["good"].sum() == r["good"].sum() + r["good"][:, 0].sum()
+
+
+def test_absolute_run_is_tagged_recorded_and_checkpointed(tmp_path):
+    import pickle
+    from snake_rl.run import results_dir
+    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", actions="absolute") == "r/g25_d0_rooms_b5_px_abs"
+    assert results_dir(0, 7, "r") == "r/d0"
+    main("dqn", 1, 300, size=7, root=str(tmp_path), actions="absolute", probe_every=150, save_agent=True)
+    d = json.load(open(tmp_path / "d0_abs" / "dqn_s1.json"))
+    assert d["actions"] == "absolute" and len(d["probes"]) >= 1
+    ck = pickle.load(open(tmp_path / "d0_abs" / "dqn_s1.agent.pkl", "rb"))
+    assert ck["actions"] == "absolute" and ck["agent"].nA == 4
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec", "mfec"])
+def test_agents_run_with_absolute_actions(name):
+    env = Snake(size=7, seed=2, actions="absolute")
+    agent = make_agent(name, env, np.random.default_rng(0))
+    obs = env.reset()
+    for t in range(300):
+        a = agent.act(obs, 0.5, t)
+        assert 0 <= a < 4
+        nobs, r, term, trunc = env.step(a)
+        agent.observe(obs, a, r, nobs, term, trunc, t)
+        obs = env.reset() if term or trunc else nobs

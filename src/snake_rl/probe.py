@@ -67,9 +67,9 @@ def _probe_obs(env, body, d):
 
 
 def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0, render="grid",
-                   frame_stack=None, wall_scale=1.0):
-    """Returns dict(X obs rows, group config id, offset class id, good (rows, 3) bool, offsets list)."""
-    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale)
+                   frame_stack=None, wall_scale=1.0, actions="relative"):
+    """Returns dict(X obs rows, group config id, offset class id, good (rows, n_actions) bool, offsets list)."""
+    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
     env.reset()
     rng = np.random.default_rng(seed)
     # Every (head cell, heading) whose straight body fits, in a fixed shuffled order; take the first n_configs
@@ -95,8 +95,8 @@ def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, len
             blocked = env.wall_set | set(body[:-1])  # the tail vacates when the head moves
             to_food = _dist_from(env, food, blocked - {head})
             g = []
-            for a in range(3):
-                nd = (d + (0, 1, -1)[a]) % 4
+            for a in range(env.n_actions):
+                nd = env.heading_after(d, a)
                 nh = (head[0] + Snake.DIRS[nd][0], head[1] + Snake.DIRS[nd][1])
                 safe = 0 <= nh[0] < size and 0 <= nh[1] < size and nh not in blocked
                 g.append(safe and to_food.get(nh, np.inf) < to_food.get(head, np.inf))
