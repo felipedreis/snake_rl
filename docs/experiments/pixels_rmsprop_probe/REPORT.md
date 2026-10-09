@@ -13,8 +13,8 @@ before the runs. Tables: [results.md](results.md) (main sweep), [results_validat
 2. **RMSProp fixes NEC's learning, not its representation.** NEC does better with RMSProp 2.5e-4 than with Adam at every size
    (7×7: 1.00 vs 0.28 fruit per episode; 25×25: 14.7 vs 9.7 per 100 steps). But a frozen random encoder does as well or better
    from 10×10 up, so the learned embedding adds nothing measurable there. DQN does the opposite: Adam beats RMSProp.
-3. **No embedding divergence appeared in any pixel run**, with Adam or RMSProp. This is consistent with the walls-channel
-   diagnosis, but the render changed several things at once, so it does not isolate it.
+3. **No embedding divergence appeared in any pixel run**, with Adam or RMSProp. The walls are still drawn
+   into the image (dimmer), so this does not confirm the walls-channel explanation either; it only says the divergence does not occur in this setting.
 4. **MFEC is not better on the grayscale board.** The grid beats pixels at all four sizes (1.87 vs 1.59, 0.70 vs 0.63,
    0.40 vs 0.37, 12.5 vs 10.8). The differences are small against the seed spread.
 5. **My first pixel probe was wrong, and the fix matters.** It showed four identical frames. With a moving snake, DQN's probe
@@ -67,9 +67,13 @@ Fruit per episode over the second half of training on open boards; fruit per 100
 - **Key norm** (NEC; first → last 1,000-step window): RMSProp stays at 0.8–1.6 → 0.6–1.4 at all four sizes. Adam is also bounded
   in every pixel run (0.6–2.2 → 0.5–5.1), except that seed 2 at 25×25 with Adam is already at 22 in its first window and ends at 17.
   Nothing diverges. In the earlier grid runs, the same Adam setting reached 10⁶–10⁹ on the CNN encoders.
-- **Why not diverging is not proven to be the walls channel.** The pixel render also removed the constant channel, added a 4-frame
-  stack, and changed the network (valid convolutions, strides, 84×84 input). The walls-channel experiment on the grid
-  (`docs/DIAGNOSIS_AND_NEXT_STEPS.md` section 2) remains the direct evidence; this is only consistent with it.
+- **Why not diverging does not isolate the walls channel.** The pixel render does not remove the walls: they are drawn into the
+  one grayscale image at level 60 (0.24 on the 0-1 scale), repeated in all 4 stacked frames, and the margin is drawn the same way.
+  So a constant wall pattern is still in the input, only dimmer and no longer its own channel. The render also changed the
+  network (valid convolutions, strides, 84×84 input) and added the frame stack. So these runs show that NEC with Adam is stable
+  *in this setting*, which weakens the claim that a constant walls input alone explains the grid divergence (at full strength,
+  as its own channel, zeroing it fixed that case; `docs/DIAGNOSIS_AND_NEXT_STEPS.md` section 2). The factor that matters may be the
+  scale of the constant input, or the network, or both, and I have not tested which.
 - **Dead ReLUs:** NEC with Adam ends with 11–35% of its last hidden layer dead, with RMSProp 0–3%.
 
 ## 4. What the encoder represents (probe), and a probe bug
