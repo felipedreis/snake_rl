@@ -511,3 +511,15 @@ def test_optimizer_setting_is_recorded_tagged_and_changes_training(name, tmp_pat
 def test_optimizer_setting_needs_an_agent_with_one(tmp_path):
     with pytest.raises(ValueError):
         main("mfec", 0, 100, size=6, root=str(tmp_path), opt="rmsprop")
+
+
+def test_pixel_probe_stack_shows_a_snake_moving_straight_in():
+    from snake_rl.probe import make_probe_set
+    P = make_probe_set(size=9, map="open", n_configs=10, render="pixels")
+    f = P["X"].reshape(-1, 4, 84, 84)
+    moving = [(x[0] != x[3]).any() for x in f]
+    assert np.mean([(x[2] != x[3]).any() for x in f]) > 0.7  # most probe snakes have room to have come from behind (not those backed against a wall or the food)
+    assert np.mean(moving) > 0.3
+    # the newest frame is the probe state itself, as in the grid probe
+    g = make_probe_set(size=9, map="open", n_configs=10, render="grid")
+    assert len(g["X"]) == len(f)
