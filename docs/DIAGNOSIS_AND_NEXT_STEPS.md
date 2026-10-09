@@ -120,6 +120,11 @@ the two sets of pairwise distances; 1 means the geometry is unchanged.
   locally ("wall next to the head"), and that knowledge carries across positions. For the MLP and other
   position-bound heads, the channel is pure bias.
 
+> **Update (2026-10-09, branch `explore/pixels-rmsprop`, `docs/experiments/grid_ablation_rmsprop_control/REPORT.md`):** three seeds confirm that the
+> magnitude of the constant walls input triggers the explosion (walls 1.0: 3 of 3 diverge; 0.235: 0 of 3; hidden: 0 of 3), on the grid and, with wall gray 255,
+> on pixels with the Nature CNN. The frame stack is not a factor. **RMSProp 2.5e-4 is not a reliable fix:** it diverged on 1 of 3 seeds with the walls at 1.0,
+> so the "stable" RMSProp rows in the table above hold for the seed tested only.
+
 **Caveats:** one seed, at most 20k steps, and a scratch subclass that re-implements `NECAgent._train` with the
 same arithmetic. Experiment E1 in section 5 repeats it properly.
 

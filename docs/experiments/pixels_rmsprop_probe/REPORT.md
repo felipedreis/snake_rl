@@ -142,6 +142,12 @@ numbers also weights the board by pixel area rather than by cell.
   agents say little about steering.
 - The 25×25 window (steps 50k–100k, food within 2 steps) is not the one used in earlier reports.
 
+> **Correction (2026-10-09, after `../grid_ablation_rmsprop_control/REPORT.md`):** two statements in this report are withdrawn or narrowed.
+> (1) "RMSProp is the first setting where NEC's encoder trains healthily on a CNN" and the claim that RMSProp fixes the explosion: on the grid with
+> the walls at 1.0, RMSProp diverged on 1 of 3 seeds. The pixel runs were stable because the pixel render draws walls at a dim gray (60/255); a
+> wall gray of 255 diverges 3 of 3 even with the Nature CNN. (2) The RMSProp gain for NEC (about 3.5× at 7×7) was mostly pixel-NEC-with-Adam being
+> unusually bad; on the grid it is 0.72 → 0.99 at 7×7 and absent at 13×13. Pixels also do not help DQN: the grid CNN is better on open boards.
+
 ## 8. Where this leaves the diagnosis document
 
 - **E2 (RMSProp): done.** It is the right optimizer for NEC here (a learning rate of 2.5e-4), and it is the first setting in this
