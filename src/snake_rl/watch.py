@@ -37,7 +37,7 @@ def load(spec, size, map, bonus, seed, render="grid"):
         with open(spec, "rb") as f:
             ck = pickle.load(f)
         board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0),
-                     render=ck.get("render", "grid"))
+                     render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0))
         return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")

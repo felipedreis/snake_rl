@@ -523,3 +523,58 @@ def test_pixel_probe_stack_shows_a_snake_moving_straight_in():
     # the newest frame is the probe state itself, as in the grid probe
     g = make_probe_set(size=9, map="open", n_configs=10, render="grid")
     assert len(g["X"]) == len(f)
+
+
+def test_grid_frame_stack_and_wall_scale():
+    plain = Snake(size=9, seed=1, map="rooms", bonus=5)
+    st = Snake(size=9, seed=1, map="rooms", bonus=5, frame_stack=3, wall_scale=0.5)
+    assert st.obs_shape == (3 * plain.channels, 9, 9) and st.obs_dim == 3 * plain.obs_dim
+    o0, os_ = plain.reset(), st.reset()
+    f = os_.reshape(3, plain.channels, 9, 9)
+    assert np.array_equal(f[0], f[2]) and f[:, 3].max() == 0.5 and plain.walls.any()
+    assert np.array_equal(f[2][:3], o0.reshape(plain.channels, 9, 9)[:3])  # head/body/food unchanged
+    arng = np.random.default_rng(0)
+    prev = f[2]
+    for _ in range(50):  # same dynamics; the newest frame is the plain observation (walls scaled); older ones shift
+        a = int(arng.integers(3))
+        (op, rp, tp, _), (osk, rs, ts, _) = plain.step(a), st.step(a)
+        assert (rp, tp) == (rs, ts)
+        g = osk.reshape(3, plain.channels, 9, 9)
+        assert np.array_equal(g[1], prev) and np.array_equal(g[2][:3], op.reshape(plain.channels, 9, 9)[:3])
+        prev = g[2]
+        if tp:
+            plain.reset(), st.reset()
+            prev = st._obs().reshape(3, plain.channels, 9, 9)[2]  # reset pushes a fresh stack
+            break
+    assert np.array_equal(Snake(size=9, seed=1, map="rooms").reset(), Snake(size=9, seed=1, map="rooms", frame_stack=1).reset())
+    with pytest.raises(ValueError):
+        Snake(size=7, frame_stack=2, distractors=1)
+
+
+def test_pixel_wall_scale_changes_only_the_wall_level():
+    a = Snake(size=25, seed=2, map="rooms", render="pixels")
+    b = Snake(size=25, seed=2, map="rooms", render="pixels", wall_scale=0.0)
+    c = Snake(size=25, seed=2, map="rooms", render="pixels", wall_scale=10.0)
+    fa, fb, fc = (e.reset().reshape(4, 84, 84)[3] for e in (a, b, c))
+    walls = fa == np.float32(60) / np.float32(255)
+    assert walls.any() and (fb[walls] == 0).all() and (fc[walls] == 1).all()
+    assert np.array_equal(fa[~walls], fb[~walls]) and np.array_equal(fa[~walls], fc[~walls])
+
+
+def test_results_dir_tags_for_stack_and_wall_scale(tmp_path):
+    from snake_rl.run import results_dir
+    assert results_dir(0, 25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5"
+    assert results_dir(0, 25, "r", "rooms", 5.0, frame_stack=4) == "r/g25_d0_rooms_b5_fs4"
+    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px"
+    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", wall_scale=0.0) == "r/g25_d0_rooms_b5_px_ws0"
+    main("dqn", 1, 300, size=7, root=str(tmp_path), map="rooms", frame_stack=2, wall_scale=0.5)
+    d = json.load(open(tmp_path / "d0_rooms_fs2_ws0.5" / "dqn_s1.json"))
+    assert d["frame_stack"] == 2 and d["wall_scale"] == 0.5
+
+
+def test_grid_stack_probe_set():
+    from snake_rl.probe import make_probe_set
+    P = make_probe_set(size=9, map="open", n_configs=10, frame_stack=3)
+    g = make_probe_set(size=9, map="open", n_configs=10)
+    assert P["X"].shape == (len(g["X"]), 3 * g["X"].shape[1])
+    assert np.array_equal(P["X"][:, -g["X"].shape[1]:], g["X"])  # the newest frame is the plain probe state
