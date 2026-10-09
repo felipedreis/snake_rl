@@ -42,4 +42,7 @@ curriculum with ε 1 → 0.05 over 50k on 25×25. Seeds 1 and 2. Representation 
    stack carries the position-independence the document predicts (E5); this is
    the number that matters for the overview's open question.
 
+*Erratum (after the runs, prediction 1 left as written):* "the walls channel is gone" was inaccurate. The pixel render draws the
+walls into the image at a dim gray (level 60, repeated in all 4 frames); only the separate channel is gone. See REPORT.md section 3.
+
 Everything below the line is written after the runs, in `REPORT.md`.
