@@ -74,29 +74,36 @@ class MLP:
 
 # DQN's conv shape scaled to the grid (see ConvNet): 25x25 -> 25 -> 13 -> 7, then FC 512.
 DQN_CONVS, DQN_FC = [(32, 3, 1), (64, 3, 2), (64, 3, 2)], 512
+# DQN's own network (Mnih et al., 2015) on 84x84 frames, valid convolutions (padding 0): 84 -> 20 -> 9 -> 7, then FC 512.
+NATURE_CONVS, NATURE_FC = [(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], 512
 
 
 class ConvNet:
     """Small CNN with manual backprop, same interface as MLP (flat batch in, params()/backward()).
 
     obs_shape = (C, n, n). `convs` lists the conv layers, each either an int (output channels; k x k kernel, stride 1)
-    or a tuple (channels, kernel, stride). Every conv uses zero padding k//2 and ReLU, so stride 1 keeps the map size
-    ("same") and stride 2 roughly halves it. The flattened feature map feeds the dense layers `fcs` (ReLU between,
-    linear last).
+    or a tuple (channels, kernel, stride[, padding]). Padding defaults to k//2 (zeros) and every conv has a ReLU, so
+    stride 1 keeps the map size ("same") and stride 2 roughly halves it; padding 0 gives "valid" convolutions.
+    The flattened feature map feeds the dense layers `fcs` (ReLU between, linear last).
     [16, 32] is the original small net: stride 1 throughout, the map stays n x n. [(32,3,1), (64,3,2), (64,3,2)] with
     fcs [512, ...] is DQN's shape (Mnih et al., 2015: 32 8x8/4, 64 4x4/2, 64 3x3/1, FC 512) scaled to the grid:
-    25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari.
+    25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari. NATURE_CONVS is DQN's exact stack,
+    for the 84x84 pixel render: [(32,8,4,0), (64,4,2,0), (64,3,1,0)], 84 -> 20 -> 9 -> 7.
     Convolutions are im2col matmuls, channels-last internally.
     """
 
     def __init__(self, obs_shape, convs, fcs, rng, k=3):
         C, n, _ = obs_shape
         self.shape, self.k = (n, n, C), k
-        self.W, self.b, self.layers, cin, h = [], [], [], C, n
+        self.W, self.b, self.layers, self.pads, cin, h = [], [], [], [], C, n
         for spec in convs:
-            cout, kk, st = (spec, k, 1) if isinstance(spec, int) else spec
-            ho = (h + 2 * (kk // 2) - kk) // st + 1
+            cout, kk, st, *pd = (spec, k, 1) if isinstance(spec, int) else spec
+            pad = pd[0] if pd else kk // 2
+            ho = (h + 2 * pad - kk) // st + 1
+            if ho < 1:
+                raise ValueError(f"conv {kk}x{kk}/{st} does not fit a {h}x{h} map")
             self.layers.append((kk, st, h, ho))  # kernel, stride, input size, output size
+            self.pads.append(pad)
             self.W.append(rng.normal(0, np.sqrt(2.0 / (kk * kk * cin)), (kk * kk * cin, cout)))
             self.b.append(np.zeros(cout))
             cin, h = cout, ho
@@ -110,9 +117,8 @@ class ConvNet:
     def params(self):
         return self.W + self.b
 
-    def _cols(self, x, k, s, ho):
-        """im2col: every k x k patch (stride s) of x as one row. x: (B, H, W, C) -> (B*ho*ho, k*k*C)."""
-        p = k // 2
+    def _cols(self, x, k, s, ho, p):
+        """im2col: every k x k patch (stride s, zero padding p) of x as one row. x: (B, H, W, C) -> (B*ho*ho, k*k*C)."""
         B, _, _, C = x.shape
         xp = np.pad(x, ((0, 0), (p, p), (p, p), (0, 0)))
         cols = np.empty((B, ho, ho, k, k, C))
@@ -128,7 +134,7 @@ class ConvNet:
         self.cache, self.cols = [], []
         L = len(self.W)
         for l, (k, s, _, ho) in enumerate(self.layers):
-            cols = self._cols(h, k, s, ho)
+            cols = self._cols(h, k, s, ho, self.pads[l])
             self.cols.append(cols)
             self.cache.append(h)
             h = np.maximum(cols @ self.W[l] + self.b[l], 0.0).reshape(B, ho, ho, -1)
@@ -159,7 +165,7 @@ class ConvNet:
         g = g.reshape(B * self.out_hw * self.out_hw, -1)
         for l in reversed(range(self.n_conv)):
             k, s, hi, ho = self.layers[l]
-            p = k // 2
+            p = self.pads[l]
             post = self.cache[l + 1] if l + 1 < self.n_conv else self.cache[self.n_conv].reshape(B, ho, ho, -1)
             g = g * (post.reshape(B * ho * ho, -1) > 0)
             gW[l] = self.cols[l].T @ g
@@ -181,6 +187,11 @@ class ConvNet:
 
     def __getstate__(self):  # the im2col buffers of the last forward() are large and only needed by backward()
         return {k: v for k, v in self.__dict__.items() if k not in ("cache", "cols", "out")}
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+        if "pads" not in d:  # checkpoints from before explicit padding: every conv was "same"
+            self.pads = [k // 2 for k, *_ in self.layers]
 
 
 class Adam:
@@ -224,3 +235,43 @@ class Adam:
         # was relative to the weights (~1e-3 is the usual healthy range; much larger = thrashing, much smaller = stalled).
         self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
                          update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+
+
+class RMSProp:
+    """RMSProp (Tieleman & Hinton, 2012), the optimizer of the DQN and NEC papers, with the same global-norm clipping
+    and the same `last` telemetry as Adam.
+
+    Divides each gradient by a running RMS of its recent values: v <- rho v + (1 - rho) g^2, p <- p - lr g / (sqrt(v) + eps).
+    Unlike Adam there is no momentum and no bias correction, and the large eps (NEC paper family: rho 0.95, eps 1e-2)
+    keeps steps small wherever gradients are small, so it moves little when gradients are tiny (e.g. ±1 rewards).
+    eps is added outside the root (PyTorch's convention); TensorFlow's RMSPropOptimizer adds it inside.
+    """
+
+    def __init__(self, params, lr, clip=10.0, rho=0.95, eps=1e-2):
+        self.p, self.lr, self.clip, self.rho, self.eps = params, lr, clip, rho, eps
+        self.v = [np.zeros_like(x) for x in params]
+        self.t = 0
+
+    def step(self, grads):
+        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
+        scale = min(1.0, self.clip / (norm + 1e-12))
+        self.t += 1
+        step2 = par2 = 0.0
+        for p, g, v in zip(self.p, grads, self.v):
+            g = g * scale
+            v[...] = self.rho * v + (1 - self.rho) * g * g
+            u = self.lr * g / (np.sqrt(v) + self.eps)
+            step2 += (u ** 2).sum()
+            par2 += (p ** 2).sum()
+            p -= u
+        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
+                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+
+
+OPTIMIZERS = {"adam": Adam, "rmsprop": RMSProp}
+
+
+def make_optimizer(kind, params, lr):
+    if kind not in OPTIMIZERS:
+        raise ValueError(f"unknown optimizer {kind!r}; choose from {sorted(OPTIMIZERS)}")
+    return OPTIMIZERS[kind](params, lr)

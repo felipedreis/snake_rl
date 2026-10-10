@@ -71,10 +71,12 @@ def test_mfec_backward_max_update_and_lookup():
 @pytest.mark.parametrize("kw", [{}, {"map": "pillars", "bonus": 3.0}], ids=["open", "pillars+bonus"])
 @pytest.mark.parametrize("name", sorted(AGENTS))
 def test_agent_runs(name, kw):
+    if name.endswith("naturecnn"):
+        kw = {**kw, "render": "pixels"}
     env, rng = Snake(size=7 if kw else 5, seed=0, **kw), np.random.default_rng(0)
     agent = make_agent(name, env, rng)
     obs = env.reset()
-    for t in range(1, 301):
+    for t in range(1, 301 if not env.pixels else 1101):  # 1000 replay rows before DQN trains
         a = agent.act(obs, 0.5, t)
         assert a in range(env.n_actions)
         nobs, r, term, trunc = env.step(a)
@@ -185,12 +187,17 @@ def test_eps_decay_is_recorded_and_tagged(tmp_path):
     assert d["eps_floor"] == 0.005 and d["eps_decay"] == 0
 
 
+def _board(name, **kw):
+    """Run kwargs for `main` and the results-dir tag; the *_naturecnn agents need the pixel render."""
+    return ({**kw, "render": "pixels"}, "_px") if name.endswith("naturecnn") else (kw, "")
+
+
 @pytest.mark.parametrize("name", sorted(AGENTS))
 def test_evaluation_does_not_change_training(name, tmp_path):
-    kw = dict(size=6, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    kw, tag = _board(name, size=6, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
     main(name, 4, 1500, root=str(tmp_path / "eval"), eval_every=500, eval_episodes=2, **kw)
-    stem = f"g6_d0_rooms_b5/{name}_eps0.05_epsd600_s4.json"
+    stem = f"g6_d0_rooms_b5{tag}/{name}_eps0.05_epsd600_s4.json"
     a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "eval"))
     assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
     assert [t for t, _ in b["evaluations"]] == [500, 1000, 1500]
@@ -253,14 +260,15 @@ def test_relocation_needs_a_curriculum(tmp_path):
 
 @pytest.mark.parametrize("name", sorted(AGENTS))
 def test_probe_does_not_change_training(name, tmp_path):
-    kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    kw, tag = _board(name, size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
     main(name, 4, 1500, root=str(tmp_path / "probe"), probe_every=500, **kw)
-    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4.json"
+    stem = f"d0_rooms_b5{tag}/{name}_eps0.05_epsd600_s4.json"
     a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "probe"))
     assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
     assert [t for t, _ in b["probes"]] == [0, 500, 1000, 1500]
-    if hasattr(make_agent(name, Snake(size=7, map="rooms", bonus=5), np.random.default_rng(0)), "probe_embed"):
+    if hasattr(make_agent(name, Snake(size=7, map="rooms", bonus=5, render=kw.get("render", "grid")),
+                          np.random.default_rng(0)), "probe_embed"):
         assert all(0 <= m["steer"] <= 1 and 0 <= m["decode"] <= 1 for _, m in b["probes"])
 
 
@@ -376,3 +384,247 @@ def test_nec_encoder_gradient_matches_finite_differences():
             p[i] = old - 1e-6; down = loss()
             p[i] = old
             assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-7)
+
+
+def test_nature_convnet_shapes_and_gradient():
+    from snake_rl.nn import ConvNet, NATURE_CONVS, NATURE_FC
+    net = ConvNet((4, 84, 84), NATURE_CONVS, [NATURE_FC, 32], np.random.default_rng(0))
+    assert [ho for _, _, _, ho in net.layers] == [20, 9, 7] and net.W[3].shape == (7 * 7 * 64, 512)
+    assert net.forward(np.zeros((2, 4 * 84 * 84))).shape == (2, 32)
+    # same code path (valid padding, stride 2, kernel 4) on a size the finite differences can afford
+    rng = np.random.default_rng(0)
+    small = ConvNet((2, 9, 9), convs=[(3, 4, 2, 0), (2, 3, 1, 0)], fcs=[5, 3], rng=rng)
+    assert [ho for _, _, _, ho in small.layers] == [3, 1]
+    x, y = rng.normal(size=(3, 2 * 81)), rng.normal(size=(3, 3))
+    loss = lambda: 0.5 * ((small.forward(x) - y) ** 2).sum()
+    loss()
+    grads = small.backward(small.forward(x) - y)
+    for p, g in zip(small.params(), grads):
+        for i in np.ndindex(p.shape):
+            old = p[i]
+            p[i] = old + 1e-6; up = loss()
+            p[i] = old - 1e-6; down = loss()
+            p[i] = old
+            assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-6)
+
+
+def test_pixel_render_is_the_same_game_in_gray():
+    g, px = Snake(size=25, seed=5, map="rooms", bonus=5), Snake(size=25, seed=5, map="rooms", bonus=5, render="pixels")
+    assert px.obs_shape == (4, 84, 84) and px.obs_dim == 4 * 84 * 84 and px.cell == 3
+    g.reset(), px.reset()
+    f = px._obs().reshape(4, 84, 84)  # reading the stack again pushes one more identical frame
+    assert np.array_equal(f[0], f[3])
+    arng = np.random.default_rng(1)
+    for _ in range(600):  # identical dynamics and rng draws: only the picture differs
+        a = int(arng.integers(3))
+        (_, rg, tg, ug), (o, rp, tp, up) = g.step(a), px.step(a)
+        assert (rg, tg, ug) == (rp, tp, up) and g.body == px.body and g.food == px.food
+        fr = o.reshape(4, 84, 84)[3]
+        hr, hc = px.body[0]
+        assert fr[4 + 3 * hr + 1, 4 + 3 * hc + 1] == np.float32(255) / np.float32(255)  # the head's pixels
+        assert fr[0, 0] == np.float32(60) / np.float32(255)  # the margin is drawn like a wall
+        if tg or ug:
+            g.reset(), px.reset()
+    # the stack holds the last 4 frames, newest last, and static_obs leaves it alone
+    px.reset()
+    o1, *_ = px.step(0)
+    s = px.static_obs()
+    o2, *_ = px.step(0)
+    assert np.array_equal(o2.reshape(4, -1)[2], o1.reshape(4, -1)[3]) and not np.array_equal(s, o2)
+    assert np.array_equal(px.static_obs().reshape(4, -1)[0], px.static_obs().reshape(4, -1)[3])
+
+
+def test_pixel_render_defaults_and_limits():
+    assert Snake(size=7).obs_shape == (3, 7, 7) and not Snake(size=7).pixels
+    with pytest.raises(ValueError):
+        Snake(size=7, render="pixels", distractors=1)
+    with pytest.raises(ValueError):
+        Snake(size=7, render="sepia")
+
+
+def test_uint8_replay_matches_float_replay():
+    from snake_rl.agents.dqn import DQNAgent
+    from snake_rl.agents.nec import NECAgent
+    for make in (lambda u8: DQNAgent(28224, 3, np.random.default_rng(0), encoder="naturecnn", obs_shape=(4, 84, 84),
+                                     replay_cap=1500, obs_u8=u8),
+                 lambda u8: NECAgent(28224, 3, np.random.default_rng(0), encoder="naturecnn", obs_shape=(4, 84, 84),
+                                     replay_cap=1500, N=5, obs_u8=u8)):
+        runs = []
+        for u8 in (False, True):
+            env, agent = Snake(size=7, seed=2, render="pixels"), make(u8)
+            obs, acts = env.reset(), []
+            for t in range(1, 1051):
+                a = agent.act(obs, 0.3, t)
+                nobs, r, term, trunc = env.step(a)
+                agent.observe(obs, a, r, nobs, term, trunc, t)
+                obs = env.reset() if term or trunc else nobs
+                acts.append(a)
+            runs.append(acts)
+        assert runs[0] == runs[1]
+
+
+def test_pixel_run_is_tagged_and_checkpointed(tmp_path):
+    import pickle
+    main("random", 0, 300, size=9, root=str(tmp_path), render="pixels", save_agent=True, probe_every=0)
+    d = json.load(open(tmp_path / "g9_d0_px" / "random_s0.json"))
+    assert d["render"] == "pixels"
+    ck = pickle.load(open(tmp_path / "g9_d0_px" / "random_s0.agent.pkl", "rb"))
+    assert ck["render"] == "pixels"
+
+
+def test_pixel_probe_set_matches_the_grid_one():
+    from snake_rl.probe import make_probe_set
+    a = make_probe_set(size=9, map="open", n_configs=10)
+    b = make_probe_set(size=9, map="open", n_configs=10, render="pixels")
+    assert b["X"].shape == (len(a["X"]), 4 * 84 * 84)
+    assert np.array_equal(a["group"], b["group"]) and np.array_equal(a["off"], b["off"]) and np.array_equal(a["good"], b["good"])
+
+
+def test_rmsprop_step_matches_hand_computation():
+    from snake_rl.nn import RMSProp
+    p = [np.array([1.0, -2.0])]
+    opt = RMSProp(p, lr=0.1, rho=0.5, eps=0.25, clip=100.0)
+    opt.step([np.array([2.0, -4.0])])
+    v = 0.5 * np.array([4.0, 16.0])  # (1 - rho) g^2
+    assert np.allclose(p[0], np.array([1.0, -2.0]) - 0.1 * np.array([2.0, -4.0]) / (np.sqrt(v) + 0.25))
+    assert opt.last["grad_norm"] == pytest.approx(np.sqrt(20.0)) and opt.last["clipped"] == 0.0
+    opt.step([np.array([2.0, -4.0])])  # second step: v = rho v + (1 - rho) g^2
+    assert np.allclose(opt.v[0], 0.5 * v + 0.5 * np.array([4.0, 16.0]))
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec"])
+def test_optimizer_setting_is_recorded_tagged_and_changes_training(name, tmp_path):
+    from snake_rl.nn import Adam, RMSProp
+    kw = dict(size=6, eps_floor=0.05, eps_decay=300)
+    main(name, 4, 1500, root=str(tmp_path), **kw)
+    main(name, 4, 1500, root=str(tmp_path), opt="rmsprop", lr=1e-4, **kw)
+    a = json.load(open(tmp_path / "g6_d0" / f"{name}_eps0.05_epsd300_s4.json"))
+    b = json.load(open(tmp_path / "g6_d0" / f"{name}_rmsprop_lr0.0001_eps0.05_epsd300_s4.json"))
+    assert (a["opt"], a["lr"], b["opt"], b["lr"]) == ("adam", None, "rmsprop", 1e-4)
+    assert a["episodes"] != b["episodes"]
+    ag = make_agent(name, Snake(size=6), np.random.default_rng(0))
+    assert isinstance(ag.opt, Adam) and ag.opt.lr == 5e-4  # the default is untouched
+    ag.set_optimizer("rmsprop", 1e-4)
+    assert isinstance(ag.opt, RMSProp) and ag.opt.lr == 1e-4 and ag.opt.p[0] is (ag.q if name == "dqn" else ag.enc).params()[0]
+
+
+def test_optimizer_setting_needs_an_agent_with_one(tmp_path):
+    with pytest.raises(ValueError):
+        main("mfec", 0, 100, size=6, root=str(tmp_path), opt="rmsprop")
+
+
+def test_pixel_probe_stack_shows_a_snake_moving_straight_in():
+    from snake_rl.probe import make_probe_set
+    P = make_probe_set(size=9, map="open", n_configs=10, render="pixels")
+    f = P["X"].reshape(-1, 4, 84, 84)
+    moving = [(x[0] != x[3]).any() for x in f]
+    assert np.mean([(x[2] != x[3]).any() for x in f]) > 0.7  # most probe snakes have room to have come from behind (not those backed against a wall or the food)
+    assert np.mean(moving) > 0.3
+    # the newest frame is the probe state itself, as in the grid probe
+    g = make_probe_set(size=9, map="open", n_configs=10, render="grid")
+    assert len(g["X"]) == len(f)
+
+
+def test_grid_frame_stack_and_wall_scale():
+    plain = Snake(size=9, seed=1, map="rooms", bonus=5)
+    st = Snake(size=9, seed=1, map="rooms", bonus=5, frame_stack=3, wall_scale=0.5)
+    assert st.obs_shape == (3 * plain.channels, 9, 9) and st.obs_dim == 3 * plain.obs_dim
+    o0, os_ = plain.reset(), st.reset()
+    f = os_.reshape(3, plain.channels, 9, 9)
+    assert np.array_equal(f[0], f[2]) and f[:, 3].max() == 0.5 and plain.walls.any()
+    assert np.array_equal(f[2][:3], o0.reshape(plain.channels, 9, 9)[:3])  # head/body/food unchanged
+    arng = np.random.default_rng(0)
+    prev = f[2]
+    for _ in range(50):  # same dynamics; the newest frame is the plain observation (walls scaled); older ones shift
+        a = int(arng.integers(3))
+        (op, rp, tp, _), (osk, rs, ts, _) = plain.step(a), st.step(a)
+        assert (rp, tp) == (rs, ts)
+        g = osk.reshape(3, plain.channels, 9, 9)
+        assert np.array_equal(g[1], prev) and np.array_equal(g[2][:3], op.reshape(plain.channels, 9, 9)[:3])
+        prev = g[2]
+        if tp:
+            plain.reset(), st.reset()
+            prev = st._obs().reshape(3, plain.channels, 9, 9)[2]  # reset pushes a fresh stack
+            break
+    assert np.array_equal(Snake(size=9, seed=1, map="rooms").reset(), Snake(size=9, seed=1, map="rooms", frame_stack=1).reset())
+    with pytest.raises(ValueError):
+        Snake(size=7, frame_stack=2, distractors=1)
+
+
+def test_pixel_wall_scale_changes_only_the_wall_level():
+    a = Snake(size=25, seed=2, map="rooms", render="pixels")
+    b = Snake(size=25, seed=2, map="rooms", render="pixels", wall_scale=0.0)
+    c = Snake(size=25, seed=2, map="rooms", render="pixels", wall_scale=10.0)
+    fa, fb, fc = (e.reset().reshape(4, 84, 84)[3] for e in (a, b, c))
+    walls = fa == np.float32(60) / np.float32(255)
+    assert walls.any() and (fb[walls] == 0).all() and (fc[walls] == 1).all()
+    assert np.array_equal(fa[~walls], fb[~walls]) and np.array_equal(fa[~walls], fc[~walls])
+
+
+def test_results_dir_tags_for_stack_and_wall_scale(tmp_path):
+    from snake_rl.run import results_dir
+    assert results_dir(0, 25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5"
+    assert results_dir(0, 25, "r", "rooms", 5.0, frame_stack=4) == "r/g25_d0_rooms_b5_fs4"
+    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px"
+    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", wall_scale=0.0) == "r/g25_d0_rooms_b5_px_ws0"
+    main("dqn", 1, 300, size=7, root=str(tmp_path), map="rooms", frame_stack=2, wall_scale=0.5)
+    d = json.load(open(tmp_path / "d0_rooms_fs2_ws0.5" / "dqn_s1.json"))
+    assert d["frame_stack"] == 2 and d["wall_scale"] == 0.5
+
+
+def test_grid_stack_probe_set():
+    from snake_rl.probe import make_probe_set
+    P = make_probe_set(size=9, map="open", n_configs=10, frame_stack=3)
+    g = make_probe_set(size=9, map="open", n_configs=10)
+    assert P["X"].shape == (len(g["X"]), 3 * g["X"].shape[1])
+    assert np.array_equal(P["X"][:, -g["X"].shape[1]:], g["X"])  # the newest frame is the plain probe state
+
+
+def test_absolute_actions_move_in_board_directions_and_ignore_reversals():
+    env = Snake(size=9, seed=1, actions="absolute")
+    assert env.n_actions == 4 and Snake(size=9).n_actions == 3
+    env.reset()  # heading right
+    head = env.body[0]
+    env.step(0)  # up
+    assert env.dir == 0 and env.body[0] == (head[0] - 1, head[1])
+    env.step(2)  # down is a reversal of up: keep going up
+    assert env.dir == 0 and env.body[0] == (head[0] - 2, head[1])
+    env.step(3)  # left
+    assert env.dir == 3
+    with pytest.raises(ValueError):
+        Snake(actions="diagonal")
+
+
+def test_absolute_probe_set_adds_only_the_reversal_direction():
+    from snake_rl.probe import make_probe_set
+    r = make_probe_set(size=9, map="open", n_configs=10)
+    a = make_probe_set(size=9, map="open", n_configs=10, actions="absolute")
+    assert a["good"].shape == (len(r["good"]), 4) and np.array_equal(a["X"], r["X"])
+    # Absolute actions add one direction, the reversal, which keeps going straight: it is good exactly when
+    # "straight" is. Every other direction is one of the three relative actions.
+    assert a["good"].sum() == r["good"].sum() + r["good"][:, 0].sum()
+
+
+def test_absolute_run_is_tagged_recorded_and_checkpointed(tmp_path):
+    import pickle
+    from snake_rl.run import results_dir
+    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", actions="absolute") == "r/g25_d0_rooms_b5_px_abs"
+    assert results_dir(0, 7, "r") == "r/d0"
+    main("dqn", 1, 300, size=7, root=str(tmp_path), actions="absolute", probe_every=150, save_agent=True)
+    d = json.load(open(tmp_path / "d0_abs" / "dqn_s1.json"))
+    assert d["actions"] == "absolute" and len(d["probes"]) >= 1
+    ck = pickle.load(open(tmp_path / "d0_abs" / "dqn_s1.agent.pkl", "rb"))
+    assert ck["actions"] == "absolute" and ck["agent"].nA == 4
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec", "mfec"])
+def test_agents_run_with_absolute_actions(name):
+    env = Snake(size=7, seed=2, actions="absolute")
+    agent = make_agent(name, env, np.random.default_rng(0))
+    obs = env.reset()
+    for t in range(300):
+        a = agent.act(obs, 0.5, t)
+        assert 0 <= a < 4
+        nobs, r, term, trunc = env.step(a)
+        agent.observe(obs, a, r, nobs, term, trunc, t)
+        obs = env.reset() if term or trunc else nobs

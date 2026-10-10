@@ -29,6 +29,16 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 (`python -m snake_rl.run ...` etc. work too.) Every command prints its options with `--help`; the full list is in
 [Command reference](#command-reference) below.
 
+## Results data
+
+The raw results (run JSONs, training telemetry, saved agents) live on Hugging Face, not in git:
+[felipedreis/snake-rl-results](https://huggingface.co/datasets/felipedreis/snake-rl-results). To restore them:
+
+    hf download felipedreis/snake-rl-results --repo-type dataset --local-dir results
+
+The `.agent.pkl` files are Python pickles: only load them from a source you trust. `results/` and `*.agent.pkl` are in
+`.gitignore`; new runs still write there, and are not tracked.
+
 ## Layout
 
     src/snake_rl/
@@ -92,6 +102,12 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
 - `dqn_dqncnn`, `nec_dqncnn`: DQN's convolutional shape scaled to the grid (conv 32 3x3/1, conv 64 3x3/2, conv 64 3x3/2,
   FC 512; 25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari). Known issue: on 25x25, NEC's
   embedding diverges with either CNN encoder (see `docs/experiments/encoder_food_probe_g25/REPORT.md`, addendum).
+- `--render pixels` with `dqn_naturecnn`, `dqn_nstep_naturecnn`, `ec_frozen_naturecnn`, `nec_naturecnn`: the Atari-style
+  setting. The board is drawn as an 84x84 grayscale image (each cell `84 // n` pixels, e.g. 3 on 25x25, 12 on 7x7), and
+  the observation is the last 4 frames, as DQN and NEC see Atari (`obs_shape = (4, 84, 84)`; no action repeat, since
+  nothing flickers). The `*_naturecnn` agents use DQN's exact network, valid convolutions 32 8x8/4, 64 4x4/2, 64 3x3/1
+  (84 -> 20 -> 9 -> 7), FC 512, then the Q head (DQN) or the 32-d key (NEC). Replay stores frames as uint8 (exact).
+  Results go to `..._px` (e.g. `results/d0_px`). About 1.7M weights; a run costs a few times a `*_dqncnn` run.
 - `Snake.render()` prints the board as ASCII.
 
 ## Run options for exploration, evaluation and curricula
@@ -160,7 +176,7 @@ Trains one agent for one seed and writes `<results>/<dir>/<stem>_s<SEED>.json` (
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `AGENT` | | One of `random`, `dqn`, `dqn_nstep`, `mfec`, `ec_frozen`, `nec`, `nec_refresh`, `nec_bonus`, `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`, `dqn_dqncnn`, `nec_dqncnn` (see `agents/__init__.py`). |
+| `AGENT` | | One of `random`, `dqn`, `dqn_nstep`, `mfec`, `ec_frozen`, `nec`, `nec_refresh`, `nec_bonus`, `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`, `dqn_dqncnn`, `nec_dqncnn`, and for `--render pixels` `dqn_naturecnn`, `dqn_nstep_naturecnn`, `ec_frozen_naturecnn`, `nec_naturecnn` (see `agents/__init__.py`). |
 | `SEED` | | Agent RNG seed; the env uses `SEED + 1000`. |
 | `STEPS` | | Environment steps to train for. |
 
@@ -172,6 +188,7 @@ Trains one agent for one seed and writes `<results>/<dir>/<stem>_s<SEED>.json` (
 | `--distractors D` | 0 | Extra observation channels of i.i.d. coin-flip noise, resampled every step. |
 | `--map M` | `open` | Obstacle layout: `open`, `pillars`, `walls`, `rooms`. Adds `_{M}` to the dir. |
 | `--bonus R` | 0 (off) | Timed bonus food worth R points after every 4 regular foods. Adds `_b{R}` to the dir; `score` becomes points. |
+| `--render {grid,pixels}` | `grid` | Observation: `grid` channels, or `pixels`, an 84x84 grayscale image with a 4-frame stack (use the `*_naturecnn` agents; no distractors). Adds `_px` to the dir. |
 
 **Exploration** (tagged in the file name when not default):
 

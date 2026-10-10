@@ -1,0 +1,7 @@
+---
+- name: Sync the code to the login node (compute nodes have no internet, so nothing is cloned there)
+  ansible.posix.synchronize:
+    src: "{{ repo_root }}/{{ item }}"
+    dest: "{{ remote_dir }}/code/"
+    rsync_opts: ["--exclude=__pycache__", "--exclude=*.egg-info"]
+  loop: [src, pyproject.toml, README.md]

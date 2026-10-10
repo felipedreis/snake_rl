@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from snake_rl.run import EPS_FLOOR
 
 # Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
-# Runs are grouped by (agent, eps_floor, eps_decay, food_curriculum, food_relocate); non-default settings are
+# Runs are grouped by (agent, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr); non-default settings are
 # appended to the label.
 LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)", "mfec": "MFEC (random projection)",
           "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
@@ -24,8 +24,10 @@ LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N
           "ec_frozen_cnn": "Episodic, frozen CNN embedding", "nec_cnn": "NEC (CNN)"}
 
 
-def label(agent, eps_floor, eps_decay=None, food_curriculum=None, food_relocate=False):
+def label(agent, eps_floor, eps_decay=None, food_curriculum=None, food_relocate=False, opt="adam", lr=None):
     name = LABELS.get(agent, agent)
+    name += "" if opt == "adam" else f", {opt}"
+    name += "" if lr is None else f", lr {lr:g}"
     name += "" if eps_floor == EPS_FLOOR else f", eps floor {eps_floor:g}"
     name += "" if eps_decay is None else f", eps decay {eps_decay:,}"
     name += "" if food_curriculum is None else f", food curriculum {':'.join(str(x) for x in food_curriculum)}"
@@ -60,7 +62,7 @@ def main(DIR="results/d0", out_dir="figures"):
         if d["steps"] == STEPS:
             fc = d.get("food_curriculum")
             key = (d["agent"], d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"), tuple(fc) if fc else None,
-                   d.get("food_relocate", False))
+                   d.get("food_relocate", False), d.get("opt", "adam"), d.get("lr"))
             data.setdefault(key, []).append(
                 (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))
         else:
@@ -71,7 +73,7 @@ def main(DIR="results/d0", out_dir="figures"):
     tables = {0: [], 1: []}
     order = list(LABELS)
     for key in sorted(data, key=lambda k: (order.index(k[0]) if k[0] in LABELS else len(order), k[0], k[1],
-                                         -1 if k[2] is None else k[2], k[3] or (), k[4])):
+                                         -1 if k[2] is None else k[2], k[3] or (), k[4], k[5], -1 if k[6] is None else k[6])):
         lab = label(*key)
         for k, ax in enumerate(axes):
             C = np.stack([run[k] for run in data[key]])

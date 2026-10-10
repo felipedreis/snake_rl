@@ -45,9 +45,31 @@ def _ego(dr, dc, heading):
     return -dr, dc
 
 
-def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0):
-    """Returns dict(X obs rows, group config id, offset class id, good (rows, 3) bool, offsets list)."""
-    env = Snake(size=size, map=map, bonus=bonus)
+def _probe_obs(env, body, d):
+    """Observation of a probe state. On the pixel render the frame stack shows the snake having moved straight in: the
+    older frames have it shifted back along its heading as far as the board allows, as a real mid-episode stack does.
+    Four identical frames would be a snake that never moves, which the agent never sees in training. Applies to any frame stack."""
+    if env.frame_stack == 1 and not env.pixels:
+        return env.static_obs()
+    dr, dc = Snake.DIRS[d]
+    free = lambda k: all(0 <= r - k * dr < env.n and 0 <= c - k * dc < env.n and not env.walls[r - k * dr, c - k * dc]
+                         and (r - k * dr, c - k * dc) != env.food for r, c in body)
+    kmax = 0  # how many cells back the snake can have come from
+    while kmax < env.frame_stack - 1 and free(kmax + 1):
+        kmax += 1
+    frames, now = [], env.body
+    for k in range(env.frame_stack - 1, -1, -1):  # oldest first; a short run-up repeats its first frame
+        k = min(k, kmax)
+        env.body = deque((r - k * dr, c - k * dc) for r, c in body)
+        frames.append(env._one())
+    env.body = now
+    return env._stack(frames)
+
+
+def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0, render="grid",
+                   frame_stack=None, wall_scale=1.0, actions="relative"):
+    """Returns dict(X obs rows, group config id, offset class id, good (rows, n_actions) bool, offsets list)."""
+    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
     env.reset()
     rng = np.random.default_rng(seed)
     # Every (head cell, heading) whose straight body fits, in a fixed shuffled order; take the first n_configs
@@ -73,12 +95,12 @@ def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, len
             blocked = env.wall_set | set(body[:-1])  # the tail vacates when the head moves
             to_food = _dist_from(env, food, blocked - {head})
             g = []
-            for a in range(3):
-                nd = (d + (0, 1, -1)[a]) % 4
+            for a in range(env.n_actions):
+                nd = env.heading_after(d, a)
                 nh = (head[0] + Snake.DIRS[nd][0], head[1] + Snake.DIRS[nd][1])
                 safe = 0 <= nh[0] < size and 0 <= nh[1] < size and nh not in blocked
                 g.append(safe and to_food.get(nh, np.inf) < to_food.get(head, np.inf))
-            X.append(env._obs())
+            X.append(_probe_obs(env, body, d))
             group.append(len(configs) - 1)
             off.append(_ego(food[0] - head[0], food[1] - head[1], d))
             good.append(g)

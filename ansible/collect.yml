@@ -1,0 +1,36 @@
+---
+# Report where a submitted spec stands and pull the results written so far into this repo's results/.
+# Safe to repeat. A finished task has done/<n> holding its exit code (0 = success).
+#   cd ansible && ansible-playbook -i inventories/ccad collect.yml -e spec=<name>
+- name: Collect {{ spec }} from CCAD
+  hosts: runner
+  gather_facts: false
+  vars_files:
+    - "experiments/{{ spec }}.yml"
+  vars:
+    run_dir: "{{ remote_dir }}/runs/{{ name }}"
+  tasks:
+    - name: Count finished tasks, failures and tasks still in the queue
+      ansible.builtin.shell: |
+        cd {{ run_dir }}
+        total=$(wc -l < jobs.txt)
+        done_n=$(ls done 2>/dev/null | wc -l)
+        bad=$(for f in done/*; do [ -f "$f" ] && [ "$(cat $f)" != 0 ] && basename $f; done 2>/dev/null | tr '\n' ' ')
+        queued=$(squeue -h -u $USER -n snake_{{ name }} | wc -l)
+        echo "$total $done_n $queued|$bad"
+      register: _state
+      changed_when: false
+
+    - name: Pull the results written so far (finished runs, plus live train logs)
+      ansible.posix.synchronize:
+        mode: pull
+        src: "{{ run_dir }}/results/"
+        dest: "{{ repo_root }}/results/"
+        rsync_opts: ["--exclude=*.agent.pkl"]
+
+    - ansible.builtin.debug:
+        msg: >-
+          {{ name }}: {{ (_state.stdout.split('|')[0].split())[1] }} of {{ (_state.stdout.split('|')[0].split())[0] }} tasks finished,
+          {{ (_state.stdout.split('|')[0].split())[2] }} still queued or running.
+          Failed task numbers (non-zero exit): {{ _state.stdout.split('|')[1] | default('none', true) | trim or 'none' }}.
+          Logs: {{ run_dir }}/logs/ on the login node.
