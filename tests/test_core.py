@@ -628,3 +628,75 @@ def test_agents_run_with_absolute_actions(name):
         nobs, r, term, trunc = env.step(a)
         agent.observe(obs, a, r, nobs, term, trunc, t)
         obs = env.reset() if term or trunc else nobs
+
+
+def test_far_probe_set_distances_steering_and_ties():
+    from snake_rl.probe import far_metrics, make_far_probe_set, make_probe_set
+
+    class FakeAgent:  # Q chosen by the test; probe_embed is the only thing far_metrics needs
+        def __init__(self, Q): self.Q = Q; self.i = 0
+        def probe_embed(self, X):
+            q = self.Q[self.i:self.i + len(X)]; self.i += len(X)
+            return q, q
+
+    near = make_probe_set(size=9, map="open", n_configs=20)
+    assert set(near["dist"].tolist()) == {1, 2}  # the default probe is unchanged and now also reports each distance
+    F = make_far_probe_set(size=9, map="open", n_configs=20)
+    assert F["dist"].min() == 1 and F["dist"].max() == 6 and F["X"].dtype != np.uint8  # grid obs stay float
+    good = F["good"].astype(float)
+    m = far_metrics(FakeAgent(good), F)  # a Q that ranks the good actions on top steers perfectly at every distance
+    assert all(v == 1.0 for v in m["steer_by_dist"] if v is not None) and sum(m["n_by_dist"]) == len(F["X"])
+    assert m["all_tied"] == pytest.approx(float((good == good[:, :1]).all(1).mean()))
+    z = far_metrics(FakeAgent(np.zeros(good.shape)), F)  # no information: everything tied, steering at the chance rate
+    assert z["all_tied"] == 1.0 and z["top_tied"] == 1.0
+    assert z["steer_by_dist"] == pytest.approx(z["chance_by_dist"])
+
+
+def test_far_probe_set_stores_pixels_as_uint8():
+    from snake_rl.probe import make_far_probe_set
+    F = make_far_probe_set(size=7, map="open", n_configs=5, render="pixels", actions="absolute")
+    assert F["X"].dtype == np.uint8 and F["X"].shape[1] == 4 * 84 * 84
+    assert F["good"].shape[1] == 4 and F["X"].max() == 255  # the head's gray level
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec"])
+def test_far_probe_does_not_change_training(name, tmp_path):
+    kw, tag = _board(name, size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    main(name, 4, 1200, root=str(tmp_path / "plain"), probe_every=600, **kw)
+    main(name, 4, 1200, root=str(tmp_path / "far"), probe_every=600, probe_far=True, **kw)
+    stem = f"d0_rooms_b5{tag}/{name}_eps0.05_epsd600_s4.json"
+    a, b = (json.load(open(tmp_path / r / stem)) for r in ("plain", "far"))
+    assert a["episodes"] == b["episodes"] and a["diagnostics"] == b["diagnostics"]
+    assert all("far" not in m for _, m in a["probes"]) and all("far" in m for _, m in b["probes"])
+    assert b["probe_far"] is True and a["probe_far"] is False
+    f = b["probes"][-1][1]["far"]
+    assert len(f["steer_by_dist"]) == 6 and 0 <= f["all_tied"] <= 1
+
+
+def test_a_short_run_is_the_prefix_of_a_longer_run(tmp_path):
+    # Protocol check C2: nothing in training depends on the total number of steps (the epsilon schedule is a function of t).
+    main("dqn", 3, 600, root=str(tmp_path / "short"), size=7)
+    main("dqn", 3, 1500, root=str(tmp_path / "long"), size=7)
+    a = json.load(open(tmp_path / "short" / "d0" / "dqn_s3.json"))["episodes"]
+    b = [e for e in json.load(open(tmp_path / "long" / "d0" / "dqn_s3.json"))["episodes"] if e[0] <= 600]
+    assert a and a == b
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec"])
+def test_checkpoint_reload_gives_the_same_q_values(name, tmp_path):
+    # Protocol check C5: a saved agent, loaded back, answers exactly like the live one.
+    import pickle
+    from snake_rl.run import save
+    env = Snake(size=7, seed=1)
+    agent = make_agent(name, env, np.random.default_rng(0))
+    obs = env.reset()
+    for t in range(1, 400):
+        a = agent.act(obs, 0.5, t)
+        nobs, r, term, trunc = env.step(a)
+        agent.observe(obs, a, r, nobs, term, trunc, t)
+        obs = env.reset() if term or trunc else nobs
+    X = np.stack([Snake(size=7, seed=s).reset() for s in range(8)])
+    save(agent, str(tmp_path / "x.agent.pkl"), 400, dict(name=name, seed=0))
+    loaded = pickle.load(open(tmp_path / "x.agent.pkl", "rb"))
+    assert loaded["t"] == 400
+    assert np.array_equal(agent.probe_embed(X)[1], loaded["agent"].probe_embed(X)[1])

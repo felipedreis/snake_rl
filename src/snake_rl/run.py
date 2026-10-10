@@ -1,7 +1,7 @@
 """Run one (agent, seed) and save per-episode scores.
 
 usage: snake-run <agent> <seed> <steps> [--distractors D] [--size n] [--eps-floor F] [--eps-decay N]
-                 [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--actions relative|absolute] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
+                 [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--actions relative|absolute] [--probe-every K [--probe-far]] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
                  [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
@@ -16,7 +16,7 @@ import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
 from snake_rl.env import ACTION_MODES, MAPS, RENDERS, Snake
-from snake_rl.probe import make_probe_set, probe
+from snake_rl.probe import make_far_probe_set, make_probe_set, probe
 
 
 EPS_FLOOR = 0.02
@@ -94,7 +94,7 @@ def results_dir(D, size, root="results", map="open", bonus=0.0, render="grid", f
 
 def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
-         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0, actions="relative"):
+         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0, actions="relative", probe_far=False):
     if food_relocate and food_curriculum is None:
         raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
@@ -113,7 +113,9 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
         eval_rng = np.random.default_rng(seed + 3000)
     # Representation probe (probe.py): a fixed hand-built state set, no rng shared with training.
     P = make_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions) if probe_every and not D else None
-    probes = [(0, probe(agent, P))] if P is not None else []
+    F = (make_far_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
+         if probe_far and P is not None else None)  # larger set: steering by distance and tie fractions
+    probes = [(0, probe(agent, P, F))] if P is not None else []
     out_dir = results_dir(D, size, root, map, bonus, render, frame_stack, wall_scale, actions)
     stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr)}_s{seed}"
     settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, distractors=D, eps_floor=eps_floor,
@@ -143,7 +145,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
         if eval_every and t % eval_every == 0:
             evals.append((t, evaluate(agent, eval_env, eval_rng, eval_episodes, eval_eps)))
         if P is not None and t % probe_every == 0:
-            probes.append((t, probe(agent, P)))
+            probes.append((t, probe(agent, P, F)))
         if save_every and t % save_every == 0:
             save(agent, f"{stem}.agent_t{t}.pkl", t, settings)
         if tlog and t % train_log_every == 0:
@@ -153,7 +155,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
                 live.write(json.dumps({"t": t, **s}) + "\n")
                 live.flush()
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
-           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "actions": actions, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
+           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "actions": actions, "probe_far": probe_far, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
            "evaluations": evals, "probes": probes, "train": train,
            "wallclock_s": time.time() - t0}
@@ -204,6 +206,8 @@ def cli():
     ap.add_argument("--eval-eps", type=float, default=0.05, help="epsilon during evaluation (DQN paper: 0.05)")
     ap.add_argument("--probe-every", type=int, default=0,
                     help="every K steps, measure the encoder and greedy steering on a fixed probe set (probe.py)")
+    ap.add_argument("--probe-far", action="store_true",
+                    help="with --probe-every, also probe food up to 6 steps away: steering by distance and tie fractions")
     ap.add_argument("--train-log-every", type=int, default=1000,
                     help="every K steps, log training telemetry (loss, TD error, grad norm, ...; 0 = off)")
     ap.add_argument("--save-agent", action="store_true",
@@ -216,7 +220,7 @@ def cli():
          bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
          eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
          train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render,
-         opt=a.opt, lr=a.lr, frame_stack=a.frame_stack, wall_scale=a.wall_scale, actions=a.actions)
+         opt=a.opt, lr=a.lr, frame_stack=a.frame_stack, wall_scale=a.wall_scale, actions=a.actions, probe_far=a.probe_far)
 
 
 if __name__ == "__main__":

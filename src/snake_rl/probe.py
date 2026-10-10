@@ -17,6 +17,14 @@ Metrics, on the agent's embedding Z (NEC: the DND key; DQN: the last hidden laye
   decode      cross-validated accuracy of a linear (ridge) read-out of the egocentric offset from Z, with
               folds split by snake configuration so no configuration is in both train and test.
 The probe never draws from the agent's rng and never calls observe/act, so training is unchanged by it.
+
+A second, optional set (`make_far_probe_set`, `run.py --probe-far`) reaches food up to 6 walkable steps away and adds, under the
+key "far" of the probe result:
+  steer_by_dist / chance_by_dist / n_by_dist   steering, its chance rate and the state count for food at walkable distance 1..6.
+  all_tied      share of states where every action has the same Q (np.isclose): the agent has no information there.
+  top_tied      share of states where two or more actions share the maximum Q (all_tied is a subset).
+  all_tied_by_dist  the same share per distance.
+Chance-level steering with all_tied near 1 means missing information, not wrong information.
 """
 from collections import deque
 
@@ -67,15 +75,18 @@ def _probe_obs(env, body, d):
 
 
 def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0, render="grid",
-                   frame_stack=None, wall_scale=1.0, actions="relative"):
-    """Returns dict(X obs rows, group config id, offset class id, good (rows, n_actions) bool, offsets list)."""
+                   frame_stack=None, wall_scale=1.0, actions="relative", compact=False):
+    """Returns dict(X obs rows, group config id, offset class id, good (rows, n_actions) bool, offsets list, dist).
+
+    dist: walkable steps from the head to the food (body and walls block), one per row. compact=True stores pixel-render
+    observations as uint8 gray levels (exact: the render only produces k/255), for large sets."""
     env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
     env.reset()
     rng = np.random.default_rng(seed)
     # Every (head cell, heading) whose straight body fits, in a fixed shuffled order; take the first n_configs
     # that have food within reach (all of them on a small board).
     cand = [(tuple(p), d) for p in np.argwhere(~env.walls) for d in range(4)]
-    X, group, off, good, configs = [], [], [], [], set()
+    X, group, off, good, dist, configs = [], [], [], [], [], set()
     for i in rng.permutation(len(cand)):
         if len(configs) == n_configs:
             break
@@ -86,7 +97,8 @@ def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, len
             continue
         env.body, env.dir = deque(body), d
         env.bonus_pos, env.bonus_left = None, 0
-        near = [p for p, k in env._steps_from_head().items() if 0 < k <= radius]
+        steps = env._steps_from_head()
+        near = [p for p, k in steps.items() if 0 < k <= radius]
         if not near:
             continue
         configs.add((head, d))
@@ -104,9 +116,19 @@ def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, len
             group.append(len(configs) - 1)
             off.append(_ego(food[0] - head[0], food[1] - head[1], d))
             good.append(g)
+            dist.append(steps[food])
     offsets = sorted(set(off))
-    return dict(X=np.array(X), group=np.array(group), off=np.array([offsets.index(o) for o in off]),
-                good=np.array(good), offsets=offsets)
+    X = np.array(X)
+    if compact and env.pixels:
+        X = np.rint(X * 255).astype(np.uint8)
+    return dict(X=X, group=np.array(group), off=np.array([offsets.index(o) for o in off]),
+                good=np.array(good), offsets=offsets, dist=np.array(dist))
+
+
+def make_far_probe_set(size=10, map="open", bonus=0.0, n_configs=60, radius=6, **kw):
+    """The larger probe set for steering by distance and tie fractions (see the module docstring). Pixel observations are
+    stored as uint8, so a few thousand states stay small; `far_metrics` converts them in chunks."""
+    return make_probe_set(size, map, bonus, n_configs=n_configs, radius=radius, compact=True, **kw)
 
 
 def _sqdist(Z):
@@ -148,9 +170,39 @@ def steering(Q, P):
     return dict(steer=float(steer.mean()), steer_chance=float(P["good"].mean()))
 
 
-def probe(agent, P):
-    """All metrics for an agent with a `probe_embed(X) -> (Z, Q)` method; {} for agents without one."""
+def tie_stats(Q):
+    """Per row: are all actions tied, and do two or more share the maximum? (np.isclose, as `steering` does.)"""
+    top = np.isclose(Q, Q.max(1, keepdims=True))
+    return np.isclose(Q, Q[:, :1]).all(1), top.sum(1) > 1
+
+
+def far_metrics(agent, F, max_dist=6, chunk=512):
+    """Steering by walkable distance and tie fractions on the far probe set F. Read-only, like `probe`."""
+    Q = np.concatenate([agent.probe_embed(_as_float(F["X"][lo:lo + chunk]))[1] for lo in range(0, len(F["X"]), chunk)])
+    best = np.isclose(Q, Q.max(1, keepdims=True))
+    steer = (best & F["good"]).sum(1) / best.sum(1)
+    all_tied, top_tied = tie_stats(Q)
+    dist, out = F["dist"], dict(steer_by_dist=[], chance_by_dist=[], n_by_dist=[], all_tied_by_dist=[])
+    for d in range(1, max_dist + 1):
+        m = dist == d
+        out["n_by_dist"].append(int(m.sum()))
+        out["steer_by_dist"].append(float(steer[m].mean()) if m.any() else None)
+        out["chance_by_dist"].append(float(F["good"][m].mean()) if m.any() else None)
+        out["all_tied_by_dist"].append(float(all_tied[m].mean()) if m.any() else None)
+    return {**out, "all_tied": float(all_tied.mean()), "top_tied": float(top_tied.mean())}
+
+
+def _as_float(X):
+    return X.astype(np.float32) / np.float32(255) if X.dtype == np.uint8 else X
+
+
+def probe(agent, P, F=None):
+    """All metrics for an agent with a `probe_embed(X) -> (Z, Q)` method; {} for agents without one. With a far probe
+    set F, the result also carries far_metrics under "far"."""
     if not hasattr(agent, "probe_embed"):
         return {}
     Z, Q = agent.probe_embed(P["X"])
-    return {**representation_metrics(Z, P), **steering(Q, P)}
+    out = {**representation_metrics(Z, P), **steering(Q, P)}
+    if F is not None:
+        out["far"] = far_metrics(agent, F)
+    return out

@@ -1,0 +1,12 @@
+# Protocol check C3 (docs/experiments/nec_budget_eval_g10/PROTOCOL.md): do the new settings (evaluation, far probe, saved agents)
+# give identical results on CCAD and locally? Compare with the same commands run on this Mac.
+name: check_c3
+time: "01:00:00"
+mem: 8G
+max_parallel: 3
+results_dir: _check_c3
+pull_agents: true
+jobs:
+  - "random 11 20000 --size 10 --render pixels --actions absolute --eval-every 5000 --eval-episodes 5"
+  - "nec_naturecnn 11 3000 --size 10 --render pixels --actions absolute --eval-every 500 --eval-episodes 5 --probe-every 1000 --probe-far --save-agent --save-every 1500 --opt rmsprop --lr 1e-4"
+  - "dqn_naturecnn 11 3000 --size 10 --render pixels --actions absolute --eval-every 500 --eval-episodes 5 --probe-every 1000 --probe-far --save-agent --save-every 1500"

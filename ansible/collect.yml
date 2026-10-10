@@ -1,5 +1,6 @@
 ---
-# Report where a submitted spec stands and pull the results written so far into this repo's results/.
+# Report where a submitted spec stands and pull the results written so far into this repo's results/. Saved agents
+# (*.agent*.pkl, ~50 MB each) are skipped unless the spec sets pull_agents: true; the pull is resumable (--partial).
 # Safe to repeat. A finished task has done/<n> holding its exit code (0 = success).
 #   cd ansible && ansible-playbook -i inventories/ccad collect.yml -e spec=<name>
 - name: Collect {{ spec }} from CCAD
@@ -26,7 +27,7 @@
         mode: pull
         src: "{{ run_dir }}/results/"
         dest: "{{ repo_root }}/results/"
-        rsync_opts: ["--exclude=*.agent.pkl"]
+        rsync_opts: "{{ ['--partial'] if (pull_agents | default(false)) else ['--exclude=*.agent*.pkl'] }}"
 
     - ansible.builtin.debug:
         msg: >-
