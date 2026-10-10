@@ -41,3 +41,10 @@ Greedy steering on the fixed probe set at the last probe (mean over seeds; chanc
 ## Next
 
 NEC under absolute actions; the RMSProp learning-rate sweep under the chosen action space; a 25x25 held-phase run; the map curriculum.
+
+## Reproduction on CCAD (2026-10-10)
+
+The same 12 runs were rerun on CEFET's CCAD cluster (`ansible/experiments/e6_absolute_actions.yml`, SLURM array, one BLAS thread per
+task, job 1382). **All 12 runs have episodes identical to the ones above** (list equality of the full episode logs), so the
+numbers do not depend on the machine, at least for this agent and these settings. Results: `results/exp_absolute_actions_ccad/`
+(on Hugging Face, see the README).

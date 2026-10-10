@@ -1,0 +1,33 @@
+# E3 adapted (docs/DIAGNOSIS_AND_NEXT_STEPS.md): NEC learning-rate sweep on 10x10 open pixels with absolute actions.
+# RMSProp lr {7.92e-6, 3e-5, 1e-4, 2.5e-4, 5e-4} and the Adam default (5e-4), 3 seeds; ec_frozen as the no-learning reference
+# (its learning rate is irrelevant); NEC with relative actions at RMSProp 2.5e-4 as the action-space reference.
+name: nec_lr_sweep_absolute
+time: "10:00:00"
+mem: 10G
+max_parallel: 12
+results_dir: exp_nec_lr_sweep_absolute
+jobs:
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 7.92e-6"
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 3e-5"
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 2.5e-4"
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 5e-4"
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 7.92e-6"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 3e-5"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 2.5e-4"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 5e-4"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 7.92e-6"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 3e-5"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 2.5e-4"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute --opt rmsprop --lr 5e-4"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "ec_frozen_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "ec_frozen_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "ec_frozen_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "nec_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions relative --opt rmsprop --lr 2.5e-4"
+  - "nec_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions relative --opt rmsprop --lr 2.5e-4"
+  - "nec_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions relative --opt rmsprop --lr 2.5e-4"

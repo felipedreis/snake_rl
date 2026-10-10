@@ -1,0 +1,21 @@
+#!/bin/bash
+# Rendered by ansible/submit.yml for {{ name }}: one array task per line of jobs.txt, one BLAS thread each.
+# Each task writes done/<n> with its exit code on exit. The trap does not fire if the job is killed outright (walltime,
+# OOM, node failure): check `squeue`/`sacct` and logs/slurm-*.out then.
+#SBATCH --job-name=snake_{{ name }}
+#SBATCH --partition={{ ccad_partition }}
+#SBATCH --qos={{ ccad_qos }}
+#SBATCH --array=1-{{ jobs | length }}%{{ max_parallel }}
+#SBATCH --cpus-per-task=1
+#SBATCH --mem={{ mem }}
+#SBATCH --time={{ time }}
+#SBATCH --output={{ run_dir }}/logs/slurm-%A_%a.out
+set -uo pipefail
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+cd "{{ run_dir }}"
+mkdir -p done results
+T=${SLURM_ARRAY_TASK_ID}
+trap 'echo "$?" > "done/$T"' EXIT
+LINE=$(sed -n "${T}p" jobs.txt)
+echo "task $T on $(hostname): snake-run $LINE --results results/{{ results_dir }}"
+"$HOME/{{ remote_dir }}/.venv/bin/snake-run" $LINE --results "results/{{ results_dir }}"

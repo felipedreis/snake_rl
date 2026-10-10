@@ -1,0 +1,10 @@
+# Smoke test: a few thousand steps of each agent type, to check the venv, timing and memory (sacct MaxRSS).
+name: smoke
+time: "00:40:00"
+mem: 12G
+max_parallel: 3
+results_dir: _smoke
+jobs:
+  - "dqn_naturecnn 1 3000 --size 10 --render pixels --actions absolute"
+  - "nec_naturecnn 1 3000 --size 10 --render pixels --actions absolute --opt rmsprop --lr 2.5e-4"
+  - "ec_frozen_naturecnn 1 3000 --size 10 --render pixels --actions absolute"
