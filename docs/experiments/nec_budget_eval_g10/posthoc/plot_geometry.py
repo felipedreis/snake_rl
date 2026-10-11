@@ -153,6 +153,49 @@ save(fig, "00_toy_readout.png")
 print("toy: this draw %.3f, mean over 200 draws %.3f (s.d. %.3f); the right answer is +1" % (est, np.mean(ests), np.std(ests)))
 
 
+HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probe-state embeddings in three dimensions</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+  :root { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; }
+  @media (prefers-color-scheme: dark) { :root { --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; } }
+  body { margin:0; padding:16px; background:var(--surface); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; } p { color:var(--ink2); font-size:13.5px; margin:0 0 12px; max-width:1100px; line-height:1.45; }
+  #plot { width:100%; height:560px; }
+</style></head><body>
+<h1>The same picture in three dimensions: do a state's nearest neighbours agree on whether &ldquo;up&rdquo; is a good move?</h1>
+<p>Each dot is one of the 1,282 probe states as embedded by a saved agent (seed 11, 250k steps), on its first three principal components. Blue: up is a good move; orange: it is not.
+Black rings: the 50 nearest probe states (in the full embedding space) of the example state, the black diamond. Panel titles: for the states where up is good, the average share of their 50 nearest
+states where up is also good; chance is 39%. Drag to rotate (the three views move together), scroll to zoom, hover for details, click a legend entry to hide a group.</p>
+<div id="plot"></div>
+<script>
+const D = __DATA__, NAMES = __LABELS__, order = ["ec_frozen", "NEC", "DQN"];
+const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+const ink = dark ? "#ffffff" : "#0b0b0b", ink2 = dark ? "#c3c2b7" : "#52514e", grid = dark ? "#3a3a38" : "#e6e5e0", surface = dark ? "#1a1a19" : "#fcfcfb";
+const traces = [], layout = {paper_bgcolor: surface, plot_bgcolor: surface, margin: {l: 0, r: 0, t: 30, b: 0}, legend: {orientation: "h", x: 0.5, xanchor: "center", y: -0.02, font: {color: ink}}, annotations: []};
+order.forEach((g, k) => {
+  const d = D[g], sc = k === 0 ? "scene" : "scene" + (k + 1), pick = (a, idx) => idx.map(i => a[i]);
+  const idxUp = [], idxNo = []; d.up.forEach((u, i) => (u ? idxUp : idxNo).push(i));
+  const base = {type: "scatter3d", scene: sc, mode: "markers", legendgroup: g, showlegend: k === 0, hoverinfo: "text"};
+  const text = i => `${NAMES[g]}<br>probe state ${i}<br>up is ${d.up[i] ? "" : "not "}a good move`;
+  traces.push({...base, name: "up is not a good move", x: pick(d.x, idxNo), y: pick(d.y, idxNo), z: pick(d.z, idxNo), text: idxNo.map(text), marker: {size: 2.6, color: "#eb6834", opacity: 0.45}});
+  traces.push({...base, name: "up is a good move", x: pick(d.x, idxUp), y: pick(d.y, idxUp), z: pick(d.z, idxUp), text: idxUp.map(text), marker: {size: 2.6, color: "#2a78d6", opacity: 0.45}});
+  traces.push({...base, name: "50 nearest states of the example", x: pick(d.x, d.nn), y: pick(d.y, d.nn), z: pick(d.z, d.nn), text: d.nn.map(text), marker: {size: 5, color: "rgba(0,0,0,0)", line: {color: ink, width: 2}}});
+  traces.push({...base, name: "the example state", x: [d.x[d.i0]], y: [d.y[d.i0]], z: [d.z[d.i0]], text: [text(d.i0)], marker: {size: 6, color: ink, symbol: "diamond"}});
+  const axis = t => ({title: {text: t, font: {color: ink2, size: 11}}, showticklabels: false, gridcolor: grid, zerolinecolor: grid, backgroundcolor: surface, showbackground: true});
+  layout[sc] = {domain: {x: [k / 3, (k + 1) / 3], y: [0, 1]}, xaxis: axis(`PC1 ${Math.round(d.var[0] * 100)}%`), yaxis: axis(`PC2 ${Math.round(d.var[1] * 100)}%`), zaxis: axis(`PC3 ${Math.round(d.var[2] * 100)}%`), camera: {eye: {x: 1.5, y: -1.5, z: 0.8}}, aspectmode: "cube"};
+  layout.annotations.push({text: `<b>${NAMES[g]}</b>: ${Math.round(d.agree * 100)}% agree on average`, x: (k + 0.02) / 3, y: 1.0, xref: "paper", yref: "paper", xanchor: "left", showarrow: false, font: {color: ink, size: 13}});
+});
+Plotly.newPlot("plot", traces, layout, {responsive: true, displaylogo: false});
+const gd = document.getElementById("plot"); let busy = false;
+gd.on("plotly_relayout", ev => {  // keep the three cameras together
+  if (busy) return; const key = Object.keys(ev).find(k => /^scene\d*\.camera$/.test(k)); if (!key) return;
+  busy = true; const upd = {}; ["scene", "scene2", "scene3"].forEach(s => { upd[s + ".camera"] = ev[key]; }); Plotly.relayout(gd, upd).then(() => { busy = false; });
+});
+</script></body></html>
+"""
+
 # 7. real-data version of the toy: probe-state embeddings projected on two principal components, and agreement of the nearest states on "is up a good move?"
 PURITY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "action_purity.json")
 RUNS = sys.argv[3] if len(sys.argv) > 3 else "results/exp_nec_budget_eval_g10"
@@ -181,7 +224,7 @@ if os.path.exists(PURITY):
     stems = {"ec_frozen": "ec_frozen_naturecnn_s11", "NEC": "nec_naturecnn_rmsprop_lr0.0001_s11", "DQN": "dqn_naturecnn_s11"}
     P = None
     fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.8)); fig.subplots_adjust(top=0.73, bottom=0.17, left=0.04, right=0.985, wspace=0.12)
-    i0 = None
+    i0, store = None, {}
     for ax, g in zip(axes, ["ec_frozen", "NEC", "DQN"]):
         path = glob.glob(f"{RUNS}/**/{stems[g]}.agent.pkl", recursive=True)[0]
         ck, board = load(path)
@@ -191,7 +234,7 @@ if os.path.exists(PURITY):
             up = P["good"][:, 0]
             i0 = int(np.random.default_rng(5).choice(np.flatnonzero(up)))   # one probe state where "up" is a good move, the same for all three agents
         Z, _ = ck["agent"].probe_embed(P["X"]); Zc = Z - Z.mean(0)
-        U, S, Vt = np.linalg.svd(Zc, full_matrices=False); var = S ** 2 / (S ** 2).sum(); XY = Zc @ Vt[:2].T
+        U, S, Vt = np.linalg.svd(Zc, full_matrices=False); var = S ** 2 / (S ** 2).sum(); XYZ = Zc @ Vt[:3].T; XY = XYZ[:, :2]
         D = _sqdist(Z); np.fill_diagonal(D, np.inf); NB = np.argsort(D, 1)[:, :50]; nn = NB[i0]
         up_agree = float(np.mean([up[NB[j]].mean() for j in np.flatnonzero(up)]))   # over ALL states where up is good: share of their 50 nearest where up is also good
         ax.scatter(XY[~up, 0], XY[~up, 1], s=9, c="#eb6834", alpha=0.35, linewidths=0, label="up is not a good move")
@@ -203,6 +246,7 @@ if os.path.exists(PURITY):
         ax.set_xticks([]); ax.set_yticks([])
         for sp in ("top", "right"): ax.spines[sp].set_visible(False)
         ax.annotate(f"PC2: {var[1]:.0%}", (0.02, 0.96), xycoords="axes fraction", color=INK2, fontsize=8.5, va="top")
+        store[g] = dict(xyz=XYZ, up=up, nn=nn, i0=i0, var=var[:3], agree=up_agree)
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc="lower center", ncol=2, frameon=False, fontsize=9, labelcolor=INK, markerscale=1.8, bbox_to_anchor=(0.5, 0.0))
     title(fig, "The same idea from our data: do a state's nearest neighbours agree on whether \"up\" is a good move?",
@@ -210,3 +254,32 @@ if os.path.exists(PURITY):
           "good, the average share of their 50 nearest probe states (full embedding space) where up is also good; chance is 39%. Black dot and rings: one example state and its 50 nearest "
           "(they need not look close in two dimensions).", width=165)
     save(fig, "06_pca_probe_states.png")
+
+    # 7b. the same in three dimensions: a static figure, and an interactive page (Plotly.js from a CDN; the data is embedded, no Python package needed)
+    fig = plt.figure(figsize=(13.4, 5.0)); fig.subplots_adjust(top=0.78, bottom=0.04, left=0.0, right=1.0, wspace=0.0)
+    for k, g in enumerate(["ec_frozen", "NEC", "DQN"], 1):
+        d = store[g]; ax = fig.add_subplot(1, 3, k, projection="3d"); xyz, up = d["xyz"], d["up"]
+        ax.scatter(*xyz[~up].T, s=7, c="#eb6834", alpha=0.30, linewidths=0, depthshade=False)
+        ax.scatter(*xyz[up].T, s=7, c="#2a78d6", alpha=0.30, linewidths=0, depthshade=False)
+        ax.scatter(*xyz[d["nn"]].T, s=26, facecolors="none", edgecolors=INK, linewidths=0.9, depthshade=False)
+        ax.scatter(*xyz[d["i0"]], s=60, c=INK, depthshade=False)
+        ax.view_init(elev=20, azim=-58)
+        ax.set_xlabel(f"PC1 {d['var'][0]:.0%}", color=INK2, fontsize=8.5, labelpad=-6); ax.set_ylabel(f"PC2 {d['var'][1]:.0%}", color=INK2, fontsize=8.5, labelpad=-6)
+        ax.set_zlabel(f"PC3 {d['var'][2]:.0%}", color=INK2, fontsize=8.5, labelpad=-6)
+        ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
+        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+            axis.pane.set_facecolor(SURFACE); axis.pane.set_edgecolor(GRID); axis._axinfo["grid"]["color"] = GRID; axis._axinfo["grid"]["linewidth"] = 0.5
+        ax.set_title(f"{LABELS[g].split(' (')[0]}: {d['agree']:.0%} agree on average", color=INK, fontsize=10.5, loc="left", pad=-4)
+    from matplotlib.lines import Line2D
+    fig.legend([Line2D([], [], marker="o", ls="", color="#eb6834", alpha=0.6), Line2D([], [], marker="o", ls="", color="#2a78d6", alpha=0.6),
+                Line2D([], [], marker="o", ls="", markerfacecolor="none", markeredgecolor=INK), Line2D([], [], marker="o", ls="", color=INK)],
+               ["up is not a good move", "up is a good move", "the 50 nearest states of the example", "the example state"], loc="lower center", ncol=4, frameon=False, fontsize=9, labelcolor=INK)
+    title(fig, "The same picture in three dimensions (first three principal components; a fixed view)",
+          "Same 1,282 probe states, saved agents (seed 11, 250k steps) and example state as the two-dimensional figure. Titles: for states where up is good, the average share of their 50 nearest "
+          "states where up is also good (chance 39%). Rotate it yourself in figures/06b_pca3d.html.", width=170)
+    save(fig, "06b_pca_probe_states_3d.png")
+    data = {g: dict(x=[round(float(v), 3) for v in d["xyz"][:, 0]], y=[round(float(v), 3) for v in d["xyz"][:, 1]], z=[round(float(v), 3) for v in d["xyz"][:, 2]],
+                    up=[bool(v) for v in d["up"]], nn=[int(i) for i in d["nn"]], i0=int(d["i0"]), var=[round(float(v), 3) for v in d["var"]], agree=round(d["agree"], 3))
+            for g, d in store.items()}
+    html = HTML.replace("__DATA__", json.dumps(data)).replace("__LABELS__", json.dumps({g: LABELS[g].split(" (")[0] for g in data}))
+    open(os.path.join(OUT, "06b_pca3d.html"), "w").write(html); print("wrote 06b_pca3d.html")

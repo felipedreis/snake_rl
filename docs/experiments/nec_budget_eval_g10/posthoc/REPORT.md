@@ -48,6 +48,14 @@ the average share of their 50 nearest probe states where up is also good. Chance
 For `ec_frozen` and NEC the answer is **40% and 39%, which is chance**: knowing a state's nearest neighbours tells you nothing about whether up is a good move. For DQN it is **48%**. The same comparison over all four actions, runs and checkpoints is in 4.3.
 This is evidence about the *geometry of the probe states*, not about the agent's memory (which stores visited states, see 4.2 and 4.6).
 
+**In three dimensions.** The same states and the same example, on the first three principal components:
+
+![pca 3d](figures/06b_pca_probe_states_3d.png)
+
+A still image shows only one angle, so there is also an interactive version you can rotate, zoom and hover: open [`figures/06b_pca3d.html`](figures/06b_pca3d.html) in a browser (it loads the Plotly library from a CDN, so it needs an internet connection; the three views rotate together).
+What the 3D view does and does not show: the clouds of `ec_frozen` and NEC look alike (a rounded cloud), and DQN's has a different shape (a dense core with arms), but blue and orange are mixed in all three, DQN included. Three components capture only 41% (`ec_frozen`, NEC) and 47% (DQN) of the variance,
+and the neighbours are found in the *full* space, so any separation that exists need not be visible in any three-dimensional view. The number in each title, not the picture, is the honest summary.
+
 ## 4. The measures, one at a time
 
 ### 4.1 Do the Q-values tell the actions apart? (Q spread)
