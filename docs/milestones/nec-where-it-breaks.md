@@ -1,6 +1,6 @@
 # Milestone: where and why NEC breaks on Snake
 
-Status: **2026-10-11. Decisions so far: food curriculum and relocation are kept; cleanup (issue 8) comes after the oracle key and egocentric option are designed and before the scaling study.** Written by Claude from the work done on branch `explore/pixels-rmsprop`.
+Status: **2026-10-11. Posted to GitHub as milestone 1 (issues #7-#18). Decisions so far: food curriculum and relocation are kept; cleanup (issue 8) comes after the oracle key and egocentric option are designed and before the scaling study.** Written by Claude from the work done on branch `explore/pixels-rmsprop`.
 Each finding is marked **measured** (a number from a run or a probe), **inferred** (reasoning from measurements, not directly tested) or **unverified**.
 
 ## Goal
@@ -61,20 +61,22 @@ play Snake well on larger or more complex boards, and exactly how it breaks.** I
 
 ## Issues, in order of implementation
 
-| Order | Issue | Deliverable | Depends on | Pre-register? |
-|---|---|---|---|---|
-| 1 | Analyse job 1475 and report (**done**) | `docs/experiments/nec_budget_eval_g10/REPORT.md` | - | frozen already |
-| 2 | NEC explained: components and comparison with DQN and MFEC | document with a table per component and the code location of each | - | no |
-| 3 | Make frozen hashes verifiable | each `FROZEN.sha256` records its commit; a script that checks the files at that commit | - | no |
-| 4 | Reproducible script for the geometry measurements | script under `docs/` | - | no |
-| 5 | Scripted greedy baseline | agent + a score for each board | - | no |
-| 6 | Oracle-key agent (hand-made key: food offset, heading, blocked-neighbour flags) | agent + report; DQN on the same features as the fair comparison | 5 | yes |
-| 7 | Egocentric observation option | env option + tests | - | no |
-| 8 | Simplify the code base (inventory below) | smaller `env.py`, `run.py`, `nn.py`, `agents/`, tests; tag of the pre-cleanup commit; bit-for-bit check of the kept path | 3, 6, 7 | no |
-| 9 | Board-size scaling study (DQN, MFEC, `ec_frozen`, NEC; a DQN learning-rate check) | protocol, runs, report: where it breaks and how | 2, 5, 8 | yes |
-| 10 | Complexity ramp at fixed size (open, pillars, walls, rooms) | protocol, runs, report | 9 | yes |
-| 11 | Egocentric control arm | protocol, runs, report | 7, 9 | yes |
-| 12 | Paper-faithfulness factorial (key size, DND capacity, N, exploration, replay, delayed training) | protocol, runs, report | 1 | yes |
+Posted to GitHub as [milestone 1](https://github.com/felipedreis/snake_rl/milestone/1); issue number = order + 6, because the repo already had six pull requests.
+
+| Order | GitHub | Issue | Deliverable | Depends on | Pre-register? |
+|---|---|---|---|---|---|
+| 1 | #7 | Analyse job 1475 and report (**done**) | `docs/experiments/nec_budget_eval_g10/REPORT.md` | - | frozen already |
+| 2 | #8 | NEC explained: components and comparison with DQN and MFEC | document with a table per component and the code location of each | - | no |
+| 3 | #9 | Make frozen hashes verifiable | each `FROZEN.sha256` records its commit; a script that checks the files at that commit | - | no |
+| 4 | #10 | Reproducible script for the geometry measurements | script under `docs/` | - | no |
+| 5 | #11 | Scripted greedy baseline | agent + a score for each board | - | no |
+| 6 | #12 | Oracle-key agent (hand-made key: food offset, heading, blocked-neighbour flags) | agent + report; DQN on the same features as the fair comparison | 5 | yes |
+| 7 | #13 | Egocentric observation option | env option + tests | - | no |
+| 8 | #14 | Simplify the code base (inventory below) | smaller `env.py`, `run.py`, `nn.py`, `agents/`, tests; tag of the pre-cleanup commit; bit-for-bit check of the kept path | 3, 6, 7 | no |
+| 9 | #15 | Board-size scaling study (DQN, MFEC, `ec_frozen`, NEC; a DQN learning-rate check) | protocol, runs, report: where it breaks and how | 2, 5, 8 | yes |
+| 10 | #16 | Complexity ramp at fixed size (open, pillars, walls, rooms) | protocol, runs, report | 9 | yes |
+| 11 | #17 | Egocentric control arm | protocol, runs, report | 7, 9 | yes |
+| 12 | #18 | Paper-faithfulness factorial (key size, DND capacity, N, exploration, replay, delayed training) | protocol, runs, report | 1 | yes |
 
 ## Code simplification (issue 8): inventory and proposal
 
