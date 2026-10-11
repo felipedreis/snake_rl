@@ -151,3 +151,62 @@ title(fig, "Why averaging the nearest stored values dilutes the food (toy illust
       "150 stored states. Blue: states where \"up\" was good (food above). Orange: where it was bad (food below). Distance is dominated by the snake's position.", width=170)
 save(fig, "00_toy_readout.png")
 print("toy: this draw %.3f, mean over 200 draws %.3f (s.d. %.3f); the right answer is +1" % (est, np.mean(ests), np.std(ests)))
+
+
+# 7. real-data version of the toy: probe-state embeddings projected on two principal components, and agreement of the nearest states on "is up a good move?"
+PURITY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "action_purity.json")
+RUNS = sys.argv[3] if len(sys.argv) > 3 else "results/exp_nec_budget_eval_g10"
+if os.path.exists(PURITY):
+    pur = json.load(open(PURITY))
+    for r in pur: r["group"] = {"dqn_naturecnn": "DQN", "ec_frozen_naturecnn": "ec_frozen"}.get(r["agent"], "NEC")
+    fig, ax = plt.subplots(figsize=(7.4, 4.3)); fig.subplots_adjust(top=0.80, bottom=0.14, left=0.1, right=0.93)
+    for g in ["DQN", "ec_frozen", "NEC"]:
+        mu, se = [], []
+        for t in TS:
+            v = np.array([r["purity"] for r in pur if r["group"] == g and r["t"] == t]); mu.append(v.mean()); se.append(v.std(ddof=1) / np.sqrt(len(v)))
+        mu, se = np.array(mu), np.array(se); c = COLORS[g]
+        ax.fill_between(XS, mu - se, mu + se, color=c, alpha=0.14, linewidth=0)
+        ax.plot(XS, mu, color=c, linewidth=1.9, solid_capstyle="round", label=f"{LABELS[g]}  ({mu[-1]:.3f} at 250k)")
+        ax.plot(XS[-1], mu[-1], "o", color=c, markersize=7, markeredgecolor=SURFACE, markeredgewidth=1.8, zorder=5)
+    style(ax, "Agreement of the 50 nearest states"); ax.set_ylim(0.50, 0.64)
+    reference(ax, float(np.mean([r["chance"] for r in pur])), "chance 0.523 (random pairs of probe states)", va="top")
+    ax.annotate("ec_frozen and NEC overlap (identical to 3 decimals)", (2.0, 0.521), xytext=(0, -13), textcoords="offset points", ha="center", color=INK2, fontsize=8.5)
+    ax.legend(loc="upper left", frameon=False, fontsize=9, labelcolor=INK)
+    title(fig, "NEC's nearest states do not agree on which moves are good",
+          "For each probe state and action: share of its 50 nearest probe states (in embedding space) that agree on whether the action is a good move. Mean over runs and actions.", width=105)
+    save(fig, "07_action_purity.png")
+
+    from snake_rl.geometry import load
+    from snake_rl.probe import _sqdist, make_probe_set
+    stems = {"ec_frozen": "ec_frozen_naturecnn_s11", "NEC": "nec_naturecnn_rmsprop_lr0.0001_s11", "DQN": "dqn_naturecnn_s11"}
+    P = None
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.8)); fig.subplots_adjust(top=0.73, bottom=0.17, left=0.04, right=0.985, wspace=0.12)
+    i0 = None
+    for ax, g in zip(axes, ["ec_frozen", "NEC", "DQN"]):
+        path = glob.glob(f"{RUNS}/**/{stems[g]}.agent.pkl", recursive=True)[0]
+        ck, board = load(path)
+        if P is None:
+            P = make_probe_set(board["size"], board["map"], board["bonus"], render=board["render"], frame_stack=board["frame_stack"],
+                               wall_scale=board["wall_scale"], actions=board["actions"])
+            up = P["good"][:, 0]
+            i0 = int(np.random.default_rng(5).choice(np.flatnonzero(up)))   # one probe state where "up" is a good move, the same for all three agents
+        Z, _ = ck["agent"].probe_embed(P["X"]); Zc = Z - Z.mean(0)
+        U, S, Vt = np.linalg.svd(Zc, full_matrices=False); var = S ** 2 / (S ** 2).sum(); XY = Zc @ Vt[:2].T
+        D = _sqdist(Z); np.fill_diagonal(D, np.inf); NB = np.argsort(D, 1)[:, :50]; nn = NB[i0]
+        up_agree = float(np.mean([up[NB[j]].mean() for j in np.flatnonzero(up)]))   # over ALL states where up is good: share of their 50 nearest where up is also good
+        ax.scatter(XY[~up, 0], XY[~up, 1], s=9, c="#eb6834", alpha=0.35, linewidths=0, label="up is not a good move")
+        ax.scatter(XY[up, 0], XY[up, 1], s=9, c="#2a78d6", alpha=0.35, linewidths=0, label="up is a good move")
+        ax.scatter(XY[nn, 0], XY[nn, 1], s=30, facecolors="none", edgecolors=INK, linewidths=0.9, zorder=5)
+        ax.plot(*XY[i0], "o", color=INK, markersize=8, markeredgecolor=SURFACE, markeredgewidth=1.6, zorder=6)
+        ax.set_title(f"{LABELS[g].split(' (')[0]}: {up_agree:.0%} agree on average", color=INK, fontsize=10.5, loc="left", pad=6)
+        ax.set_xlabel(f"principal component 1 ({var[0]:.0%} of the variance)", color=INK2, fontsize=9); ax.set_ylabel("")
+        ax.set_xticks([]); ax.set_yticks([])
+        for sp in ("top", "right"): ax.spines[sp].set_visible(False)
+        ax.annotate(f"PC2: {var[1]:.0%}", (0.02, 0.96), xycoords="axes fraction", color=INK2, fontsize=8.5, va="top")
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=2, frameon=False, fontsize=9, labelcolor=INK, markerscale=1.8, bbox_to_anchor=(0.5, 0.0))
+    title(fig, "The same idea from our data: do a state's nearest neighbours agree on whether \"up\" is a good move?",
+          "Each dot is one of the 1,282 probe states as embedded by the saved agent (seed 11, 250 k steps), projected on its two main directions. Panel titles: for the states where up is "
+          "good, the average share of their 50 nearest probe states (full embedding space) where up is also good; chance is 39%. Black dot and rings: one example state and its 50 nearest "
+          "(they need not look close in two dimensions).", width=165)
+    save(fig, "06_pca_probe_states.png")

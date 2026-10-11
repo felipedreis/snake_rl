@@ -7,6 +7,9 @@ For each checkpoint (a `.agent*.pkl` written by `snake-run --save-agent/--save-e
   onpolicy  neighbour structure of the embeddings of states the agent visits itself: for each label (head cell, food cell, food
             offset in the board frame, food offset in the snake's frame) the share of an embedding's 10 nearest states, taken from
             OTHER episodes, that carry the same label, next to the share expected by chance (the share of other-episode states with that label, averaged over states).
+  action_purity  among the probe states: for each state and action, the share of its 50 nearest probe states (in embedding space) that agree with it
+            on whether that action is a good move (safe and shortening the path to the food), averaged, next to the share expected by chance.
+            If the nearest states disagree about which move is good, an average over them cannot prefer a move.
   qfood     how much the Q-values on the probe set depend on where the food is: the s.d. of Q over states that share a snake
             configuration (only the food moves), over the s.d. of Q over all states, averaged over actions. Near 0 = Q ignores the food.
   memory    agents with a memory (NEC, ec_frozen) only: for each action, the s.d. of the 50 neighbours' values over the s.d. of all
@@ -79,6 +82,17 @@ def onpolicy(Z, meta, n, k=10):
     return out
 
 
+def action_purity(Z, P, k=50):
+    """Agreement of the k nearest probe states on which actions are good; `chance` is the agreement of random pairs of probe states."""
+    good = P["good"].astype(float)
+    D = _sqdist(Z)
+    np.fill_diagonal(D, np.inf)
+    nb = np.argsort(D, 1)[:, :k]
+    agree = (good[nb] == good[:, None, :]).mean(1)  # (states, actions): share of the k neighbours with the same label
+    pa = good.mean(0)
+    return {"purity": float(agree.mean()), "chance": float(np.mean(pa ** 2 + (1 - pa) ** 2)), "k": k}
+
+
 def qfood(Q, P):
     """Within-configuration s.d. of Q (only the food moves) over the overall s.d., per action, averaged."""
     g, ratios = P["group"], []
@@ -127,6 +141,7 @@ def analyse(path, episodes=20, eps=0.05, max_states=3000, seed=777):
                board=board, probe=probe(agent, P))
     Zp, Qp = agent.probe_embed(P["X"])
     res["qfood"] = qfood(Qp, P)
+    res["action_purity"] = action_purity(Zp, P)
     X, meta = rollout(agent, board, episodes, eps, seed, max_states)
     Z, _ = _embed(agent, X)
     res["onpolicy"] = onpolicy(Z, meta, n)

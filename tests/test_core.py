@@ -713,6 +713,7 @@ def test_geometry_analysis_of_a_checkpoint(name, tmp_path):
     inrun = dict(run["probes"])[300]
     assert res["t"] == 300 and all(abs(res["probe"][k] - inrun[k]) < 1e-9 for k in ("steer", "knn_offset", "knn_config", "decode"))
     assert {"head", "food", "offset_board", "offset_ego"} <= set(res["onpolicy"]) and 0 <= res["qfood"]["ratio"]
+    assert 0 <= res["action_purity"]["purity"] <= 1 and 0 <= res["action_purity"]["chance"] <= 1
     assert ("memory" in res) == (name == "nec")
     if name == "nec":
         assert len(res["memory"]["coherence"]) == 3 and all(0 <= c for c in res["memory"]["coherence"] if c is not None)

@@ -29,14 +29,24 @@ alike; every per-learning-rate number is in [geometry.md](geometry.md). DQN and 
 - **Probe**: 1,282 hand-built states (a snake of length 3 at many positions and headings, food within 2 walkable steps), the same set at every checkpoint. **Own states**: states the saved agent actually visits when it plays 20 episodes at epsilon 0.05.
 - **Chance**: the value a measure would take if there were no structure at all. Each figure marks it.
 
-## 3. A toy picture of the idea
+## 3. The idea in two pictures
 
 ![toy](figures/00_toy_readout.png)
 
 *Made-up points, not our data.* Each stored state has two coordinates: where the snake is (they differ a lot from state to state) and where the food is (they differ little). Distance between keys is
 dominated by the large differences, so the 50 nearest points to a new state share its snake position but have the food on both sides, and their values (blue = food above, orange = below) cancel.
 The kernel-weighted average comes out at +0.51 in this draw (+0.57 on average over 200 draws), well short of the right answer, +1. A learned linear read-out (right) is not bound by distance: it can look along the one direction that matters.
-This is the mechanism we suspect; the figures that follow measure pieces of it in the real agents.
+This is the mechanism we suspect. The next picture shows the same idea with our data, and the measures in section 4 quantify pieces of it.
+
+### The same picture from our data
+
+![pca](figures/06_pca_probe_states.png)
+
+Each dot is one of the 1,282 probe states, as embedded by a saved agent (seed 11, 250k steps) and projected on its two main directions (principal components). We know for every probe state whether *up* is a good move (safe, and shortening the path to the food): blue if yes, orange if no. This is the real analogue of the toy's "food above / below".
+The black dot is one example state where up is good, and the rings are its 50 nearest probe states, found in the *full* embedding space (so they need not look close in two dimensions). The panel titles give the number that matters: for the states where up is good,
+the average share of their 50 nearest probe states where up is also good. Chance is 39%, the share of all states where up is good.
+For `ec_frozen` and NEC the answer is **40% and 39%, which is chance**: knowing a state's nearest neighbours tells you nothing about whether up is a good move. For DQN it is **48%**. The same comparison over all four actions, runs and checkpoints is in 4.3.
+This is evidence about the *geometry of the probe states*, not about the agent's memory (which stores visited states, see 4.2 and 4.6).
 
 ## 4. The measures, one at a time
 
@@ -59,7 +69,17 @@ This is the mechanism we suspect; the figures that follow measure pieces of it i
 - **What we see.** 0.9-1.0 at every checkpoint, for the learned and the frozen embedding alike (0.94 at 250k).
 - **Reading.** The neighbours' values are almost as dispersed as the memory as a whole, so the average carries little information about the state. This matches the flat Q-values in 4.1. It is the measured version of what the toy picture suggests; it does not by itself prove that the position-dominated geometry is the cause.
 
-### 4.3 What does the embedding group states by? (neighbour purity on the agents' own states)
+### 4.3 Do a state's nearest neighbours agree on which moves are good? (action agreement)
+
+![action purity](figures/07_action_purity.png)
+
+- **Question.** This is the data version of the toy. If a state's nearest neighbours in embedding space disagree about which moves are good, then averaging anything over them cannot prefer a move.
+- **How.** For each probe state `i` and action `a`, take the 50 nearest probe states `j` in the full embedding space (Euclidean distance, excluding `i`). Agreement is the share of those `j` with the same label as `i` for "is action `a` a good move", where *good* means safe and shortening the shortest path to the food.
+  Average over states and the four actions. Chance is the agreement of random pairs of probe states: 0.523 (the labels are not balanced: each action is good in about 39% of states).
+- **What we see.** NEC and `ec_frozen` are at **0.521 on average, and every one of their 200 checkpoints lies between 0.519 and 0.525** (chance 0.523): a state's nearest neighbours agree no more than random states do. DQN rises from 0.558 (60k) to 0.608 (250k); its checkpoints span 0.549-0.631.
+- **Reading.** In NEC's key space, being near says nothing about which moves are good. That is the quantity NEC's averaging needs, and it is at chance in all 40 runs. It is a statement about probe states, not about what the agent stored; see 4.2 for the measure on the memory itself.
+
+### 4.4 What does the embedding group states by? (neighbour purity on the agents' own states)
 
 ![own states](figures/03_own_states_grouping.png)
 
@@ -70,9 +90,9 @@ This is the mechanism we suspect; the figures that follow measure pieces of it i
   - Head position: every agent is far above chance. At 250k, DQN 0.21, NEC 0.27 and `ec_frozen` 0.56, against chance 0.02. DQN started even higher (0.77 at 60k) and moved away from it as it learned.
   - Food offset: purity is only 0.04-0.07 at 250k for all agents, against chance 0.02; DQN was higher (0.15) at 60k and fell.
 - **Reading.** All three agents group their own states by where the snake is, and none groups them well by where the food is. **So "organised by position" does not by itself separate NEC from DQN**, which makes my earlier explanation (position grouping is why NEC fails) incomplete.
-  DQN steers anyway, which suggests the difference lies in how Q is read out (4.4 and section 5), not in what the neighbourhoods look like.
+  DQN steers anyway, which suggests the difference lies in how Q is read out (4.5 and section 5), not in what the neighbourhoods look like.
 
-### 4.4 Is the food offset present, and does the agent use it? (read-out accuracy and steering)
+### 4.5 Is the food offset present, and does the agent use it? (read-out accuracy and steering)
 
 ![readable](figures/04_food_readable_and_steering.png)
 
@@ -82,16 +102,16 @@ This is the mechanism we suspect; the figures that follow measure pieces of it i
 - **What we see.** DQN's read-out accuracy rises from 0.14 to 0.24 and its steering from 0.57 to 0.77. NEC and `ec_frozen` sit at chance on both (0.10; 0.40-0.43).
 - **Reading.** The food offset is weakly present in DQN's hidden layer and is used. It is absent from NEC's key space, learned or random, at least in a form a linear read-out can find.
 
-### 4.5 Is the probe a fair test of NEC? (probe-to-memory distance)
+### 4.6 Is the probe a fair test of NEC? (probe-to-memory distance)
 
 ![probe vs memory](figures/05_probe_vs_memory.png)
 
 - **Question.** NEC can only answer well for states resembling what it has stored. Are the probe's hand-built states close to the memory?
 - **How.** For each probe state, the distance to its nearest stored key, averaged; divided by the average distance from a stored key to its own nearest other stored key (a sample of 2,000 keys per action). 1 means the probe states are as close to memory as memory is to itself.
 - **What we see.** 1.5 for `ec_frozen`; 3.6 for the learned NEC at 250k (3.1-4.1 across learning rates).
-- **Reading.** The learned NEC's keys place the probe states about 3.6 times farther from its memory than memory is from itself, so its near-probe steering (4.4) is measured partly on states it has not stored. That weakens the probe as evidence for NEC specifically. It does not rescue NEC: its evaluation score, measured on the agent's own play, is also below the frozen embedding's.
+- **Reading.** The learned NEC's keys place the probe states about 3.6 times farther from its memory than memory is from itself, so its near-probe steering (4.5) is measured partly on states it has not stored. That weakens the probe as evidence for NEC specifically. It does not rescue NEC: its evaluation score, measured on the agent's own play, is also below the frozen embedding's.
 
-### 4.6 One more number (table only)
+### 4.7 One more number (table only)
 
 How much Q depends on the food when the snake does not move (`qfood` ratio: the s.d. of Q across states that share a snake placement, over the s.d. of Q across all states, averaged over actions). At 250k: DQN 0.20 (0.30 at 60k), `ec_frozen` 0.44, NEC 0.54-0.61.
 NEC's Q varies with the food *relatively more* than DQN's does, yet it does not steer. Together with the absence of ties, this says the food-dependence that exists is not aligned with the right action. Per-checkpoint values are in geometry.md.
@@ -101,9 +121,10 @@ NEC's Q varies with the food *relatively more* than DQN's does, yet it does not 
 **Measured**
 1. NEC's Q-values barely separate the actions, and training does not change that (4.1).
 2. The 50 nearest stored values disagree almost as much as stored values in general (4.2), which is what makes the average flat.
-3. The embeddings of all three agents group states by head position and none groups them well by food position (4.3).
-4. The food offset is recoverable from DQN's hidden layer, weakly, and not from NEC's keys (4.4).
-5. The probe's states are far from the learned NEC's memory (4.5).
+3. In NEC's key space, a probe state's nearest neighbours agree with it on which moves are good no better than random states (0.521 against chance 0.523, in every run and checkpoint); in DQN's hidden layer they do (0.558 rising to 0.608) (4.3).
+4. The embeddings of all three agents group their own states by head position, and none groups them well by food position (4.4).
+5. The food offset is recoverable from DQN's hidden layer, weakly, and not from NEC's keys (4.5).
+6. The probe's states are far from the learned NEC's memory (4.6).
 
 **Inferred, not tested here**
 - That NEC's nearest-neighbour read-out, not the position grouping itself, is what hurts it: DQN has the same grouping but reads Q through a learned linear layer that can use other directions. A direct test would give DQN a nearest-neighbour read-out on its own hidden layer, or give NEC a learned one.
@@ -124,5 +145,6 @@ NEC's Q varies with the food *relatively more* than DQN's does, yet it does not 
 # on the cluster (50 jobs, one per run): ansible-playbook -i inventories/ccad submit.yml -e spec=geometry_budget_eval_g10   (from ansible/)
 python -m snake_rl.geometry CHECKPOINT... --out results/geometry_budget_eval_g10      # or locally, one checkpoint at a time
 python docs/experiments/nec_budget_eval_g10/posthoc/analyze_geometry.py               # tables and the validation against the runs' own probes
+python docs/experiments/nec_budget_eval_g10/posthoc/action_purity.py                   # action agreement (4.3) for every checkpoint
 python docs/experiments/nec_budget_eval_g10/posthoc/plot_geometry.py                  # the figures
 ```
