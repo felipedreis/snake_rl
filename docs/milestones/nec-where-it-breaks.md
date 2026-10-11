@@ -63,7 +63,7 @@ play Snake well on larger or more complex boards, and exactly how it breaks.** I
 
 Posted to GitHub as [milestone 1](https://github.com/felipedreis/snake_rl/milestone/1); issue number = order + 6, because the repo already had six pull requests.
 
-| Order | GitHub | Issue | Deliverable | Depends on | Pre-register? |
+| Order | GitHub | Issue | Deliverable | Depends on (order) | Pre-register? |
 |---|---|---|---|---|---|
 | 1 | #7 | Analyse job 1475 and report (**done**) | `docs/experiments/nec_budget_eval_g10/REPORT.md` | - | frozen already |
 | 2 | #8 | NEC explained: components and comparison with DQN and MFEC | document with a table per component and the code location of each | - | no |
