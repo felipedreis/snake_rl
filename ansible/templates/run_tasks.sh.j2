@@ -17,5 +17,8 @@ mkdir -p done results
 T=${SLURM_ARRAY_TASK_ID}
 trap 'echo "$?" > "done/$T"' EXIT
 LINE=$(sed -n "${T}p" jobs.txt)
-echo "task $T on $(hostname): snake-run $LINE --results results/{{ results_dir }}"
+{% if runner is defined %}echo "task $T on $(hostname): python -m {{ runner }} $LINE --out results/{{ results_dir }}"
+"$HOME/{{ remote_dir }}/.venv/bin/python" -m {{ runner }} $LINE --out "results/{{ results_dir }}"
+{% else %}echo "task $T on $(hostname): snake-run $LINE --results results/{{ results_dir }}"
 "$HOME/{{ remote_dir }}/.venv/bin/snake-run" $LINE --results "results/{{ results_dir }}"
+{% endif %}

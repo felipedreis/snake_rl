@@ -42,8 +42,13 @@ play Snake well on larger or more complex boards, and exactly how it breaks.** I
 - NEC with RMSProp barely changes this geometry in 60k steps (`knn_config` 0.63 to 0.58 at the highest rate); with Adam it changes a lot (to 0.16) without improving steering and with 18% dead units; DQN's hidden layer reorganises (0.73 to 0.39).
 - The random baseline on 10x10 is 0.17 fruit per episode (relative actions, grid).
 
+- Post-hoc geometry of 250 saved agents (exploratory, `docs/experiments/nec_budget_eval_g10/posthoc/REPORT.md`; job 1541): the 50 nearest stored values are almost as dispersed as the whole memory (coherence 0.9-1.0), so NEC's kernel average is close to the memory-wide mean for any state, and Q barely separates actions (spread 0.31-0.35, flat over training; DQN's grows from 0.85 to 2.14).
+- On the agents' own states, embeddings group by head cell more than 10 times as often as chance for **all** agents, DQN included (DQN 0.21, NEC 0.25-0.30, `ec_frozen` 0.56 at 250k). So "organised by position" does not by itself separate NEC from DQN.
+- The near probe is out of distribution for the learned NEC: probe states lie 3-4 times farther from memory than stored keys lie from each other (1.5 for `ec_frozen`).
+
 **Inferred, not directly tested**
-- That this geometry is why NEC's Q-values barely separate actions: the 50 nearest memories of a state would mostly be states with the same snake and different food, whose best actions disagree, so their average is nearly flat. The neighbours measured were among probe states, not the agent's memory.
+- Refined explanation: NEC's Q comes from nearest neighbours, so a position-dominated geometry makes it blind to the food, whereas DQN reads Q out through a learned linear layer that can use other directions of its hidden layer (the food offset is weakly linearly readable in DQN, `decode` 0.24, and not at all in NEC, 0.10). A direct test would give DQN a nearest-neighbour readout, or NEC a learned one.
+- That the position-dominated geometry is the *cause* of the flat Q-values. The flatness itself (neighbour values not coherent) is now measured; the causal link is not.
 - That more budget would fix it: the budget experiment found that it does not, up to 250k steps. The representation, or the signal that trains it, is the likelier bottleneck (the oracle-key test is the direct check).
 - That a position-organised embedding works in Ms. Pac-Man because the maze is fixed, actions are absolute and scoring needs no target-directed steering (the paper itself says small items are plentiful).
 
@@ -68,7 +73,7 @@ Posted to GitHub as [milestone 1](https://github.com/felipedreis/snake_rl/milest
 | 1 | #7 | Analyse job 1475 and report (**done**) | `docs/experiments/nec_budget_eval_g10/REPORT.md` | - | frozen already |
 | 2 | #8 | NEC explained: components and comparison with DQN and MFEC | document with a table per component and the code location of each | - | no |
 | 3 | #9 | Make frozen hashes verifiable | each `FROZEN.sha256` records its commit; a script that checks the files at that commit | - | no |
-| 4 | #10 | Reproducible script for the geometry measurements | script under `docs/` | - | no |
+| 4 | #10 | Reproducible script for the geometry measurements (**done**) | `src/snake_rl/geometry.py`, `docs/experiments/nec_budget_eval_g10/posthoc/` | - | no |
 | 5 | #11 | Scripted greedy baseline | agent + a score for each board | - | no |
 | 6 | #12 | Oracle-key agent (hand-made key: food offset, heading, blocked-neighbour flags) | agent + report; DQN on the same features as the fair comparison | 5 | yes |
 | 7 | #13 | Egocentric observation option | env option + tests | - | no |

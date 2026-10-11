@@ -700,3 +700,21 @@ def test_checkpoint_reload_gives_the_same_q_values(name, tmp_path):
     loaded = pickle.load(open(tmp_path / "x.agent.pkl", "rb"))
     assert loaded["t"] == 400
     assert np.array_equal(agent.probe_embed(X)[1], loaded["agent"].probe_embed(X)[1])
+
+
+@pytest.mark.parametrize("name", ["dqn", "nec"])
+def test_geometry_analysis_of_a_checkpoint(name, tmp_path):
+    # The post-hoc analysis reproduces the run's own probe at that step and reports the documented fields.
+    import json
+    from snake_rl.geometry import analyse
+    main(name, 3, 600, root=str(tmp_path), size=7, probe_every=300, save_every=300, save_agent=True)
+    run = json.load(open(tmp_path / "d0" / f"{name}_s3.json"))
+    res = analyse(str(tmp_path / "d0" / f"{name}_s3.agent_t300.pkl"), episodes=4, max_states=300)
+    inrun = dict(run["probes"])[300]
+    assert res["t"] == 300 and all(abs(res["probe"][k] - inrun[k]) < 1e-9 for k in ("steer", "knn_offset", "knn_config", "decode"))
+    assert {"head", "food", "offset_board", "offset_ego"} <= set(res["onpolicy"]) and 0 <= res["qfood"]["ratio"]
+    assert ("memory" in res) == (name == "nec")
+    if name == "nec":
+        assert len(res["memory"]["coherence"]) == 3 and all(0 <= c for c in res["memory"]["coherence"] if c is not None)
+    for lab in ("head", "food", "offset_board", "offset_ego"):
+        assert 0 <= res["onpolicy"][lab]["purity"] <= 1 and 0 <= res["onpolicy"][lab]["chance"] <= 1
