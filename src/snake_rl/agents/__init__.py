@@ -35,6 +35,15 @@ AGENTS = {
                                             obs_shape=env.obs_shape),
     "nec_dqncnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
                                             encoder="dqncnn", obs_shape=env.obs_shape),
+    # DQN's exact network (32 8x8/4, 64 4x4/2, 64 3x3/1, FC 512) for the 84x84 pixel render (--render pixels)
+    "dqn_naturecnn": lambda env, rng: DQNAgent(env.obs_dim, env.n_actions, rng, N=1, encoder="naturecnn",
+                                               obs_shape=env.obs_shape, obs_u8=True),
+    "dqn_nstep_naturecnn": lambda env, rng: DQNAgent(env.obs_dim, env.n_actions, rng, N=N, encoder="naturecnn",
+                                                     obs_shape=env.obs_shape, obs_u8=True),
+    "ec_frozen_naturecnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=False, N=N,
+                                                     encoder="naturecnn", obs_shape=env.obs_shape, obs_u8=True),
+    "nec_naturecnn": lambda env, rng: NECAgent(env.obs_dim, env.n_actions, rng, learn_embedding=True, N=N,
+                                               encoder="naturecnn", obs_shape=env.obs_shape, obs_u8=True),
 }
 
 

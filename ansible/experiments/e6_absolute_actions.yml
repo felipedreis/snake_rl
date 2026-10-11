@@ -1,0 +1,19 @@
+# E6 (docs/experiments/absolute_actions_e6/PLAN.md) rerun on CCAD: DQN, Nature CNN, pixels, 7x7 and 10x10 open, 60k steps, 3 seeds.
+name: e6_absolute_actions
+time: "04:00:00"
+mem: 8G
+max_parallel: 12
+results_dir: exp_absolute_actions_ccad
+jobs:
+  - "dqn_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions relative"
+  - "dqn_naturecnn 1 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "dqn_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions relative"
+  - "dqn_naturecnn 2 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "dqn_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions relative"
+  - "dqn_naturecnn 3 60000 --size 10 --render pixels --probe-every 10000 --actions absolute"
+  - "dqn_naturecnn 1 60000 --size 7 --render pixels --probe-every 10000 --actions relative"
+  - "dqn_naturecnn 1 60000 --size 7 --render pixels --probe-every 10000 --actions absolute"
+  - "dqn_naturecnn 2 60000 --size 7 --render pixels --probe-every 10000 --actions relative"
+  - "dqn_naturecnn 2 60000 --size 7 --render pixels --probe-every 10000 --actions absolute"
+  - "dqn_naturecnn 3 60000 --size 7 --render pixels --probe-every 10000 --actions relative"
+  - "dqn_naturecnn 3 60000 --size 7 --render pixels --probe-every 10000 --actions absolute"

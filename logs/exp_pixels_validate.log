@@ -1,0 +1,68 @@
+usage: snake-run [-h] [--distractors DISTRACTORS] [--size SIZE]
+                 [--eps-floor EPS_FLOOR] [--eps-decay EPS_DECAY]
+                 [--map {open,pillars,walls,rooms}] [--bonus BONUS]
+                 [--render {grid,pixels}] [--opt {adam,rmsprop}] [--lr LR]
+                 [--food-curriculum R[:H]:N] [--food-relocate]
+                 [--eval-every EVAL_EVERY] [--eval-episodes EVAL_EPISODES]
+                 [--eval-eps EVAL_EPS] [--probe-every PROBE_EVERY]
+                 [--train-log-every TRAIN_LOG_EVERY] [--save-agent]
+                 [--save-every SAVE_EVERY] [--results RESULTS]
+                 agent seed steps
+usage: snake-run [-h] [--distractors DISTRACTORS] [--size SIZE]
+                 [--eps-floor EPS_FLOOR] [--eps-decay EPS_DECAY]
+                 [--map {open,pillars,walls,rooms}] [--bonus BONUS]
+                 [--render {grid,pixels}] [--opt {adam,rmsprop}] [--lr LR]
+                 [--food-curriculum R[:H]:N] [--food-relocate]
+                 [--eval-every EVAL_EVERY] [--eval-episodes EVAL_EPISODES]
+                 [--eval-eps EVAL_EPS] [--probe-every PROBE_EVERY]
+                 [--train-log-every TRAIN_LOG_EVERY] [--save-agent]
+                 [--save-every SAVE_EVERY] [--results RESULTS]
+                 agent seed steps
+snake-run: error: unrecognized arguments: --size 25 --map rooms --bonus 5 --food-curriculum 2:250000:600000 --food-relocate --eps-floor 0.05 --eps-decay 50000 --probe-every 25000
+snake-run: error: unrecognized arguments: --size 25 --map rooms --bonus 5 --food-curriculum 2:250000:600000 --food-relocate --eps-floor 0.05 --eps-decay 50000 --probe-every 25000
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/Users/felipeduarte/IdeaProjects/snake/.venv/bin/snake-run", line 8, in <module>
+    sys.exit(cli())
+             ~~~^^
+  File "/Users/felipeduarte/IdeaProjects/snake/.venv/bin/snake-run", line 8, in <module>
+    sys.exit(cli())
+             ~~~^^
+  File "/Users/felipeduarte/IdeaProjects/snake/src/snake_rl/run.py", line 202, in cli
+    main(a.agent, a.seed, a.steps, D=a.distractors, size=a.size, root=a.results, eps_floor=a.eps_floor, map=a.map,
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render,
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         opt=a.opt, lr=a.lr)
+         ^^^^^^^^^^^^^^^^^^^
+  File "/Users/felipeduarte/IdeaProjects/snake/src/snake_rl/run.py", line 202, in cli
+    main(a.agent, a.seed, a.steps, D=a.distractors, size=a.size, root=a.results, eps_floor=a.eps_floor, map=a.map,
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render,
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         opt=a.opt, lr=a.lr)
+         ^^^^^^^^^^^^^^^^^^^
+  File "/Users/felipeduarte/IdeaProjects/snake/src/snake_rl/run.py", line 99, in main
+    agent = make_agent(name, env, rng)
+  File "/Users/felipeduarte/IdeaProjects/snake/src/snake_rl/agents/__init__.py", line 52, in make_agent
+    raise ValueError(f"unknown agent {name!r}; choose from {sorted(AGENTS)}")
+  File "/Users/felipeduarte/IdeaProjects/snake/src/snake_rl/run.py", line 99, in main
+    agent = make_agent(name, env, rng)
+ValueError: unknown agent 'nec_naturecnn --opt rmsprop --lr 2.5e-4'; choose from ['dqn', 'dqn_cnn', 'dqn_dqncnn', 'dqn_naturecnn', 'dqn_nstep', 'dqn_nstep_cnn', 'dqn_nstep_naturecnn', 'ec_frozen', 'ec_frozen_cnn', 'ec_frozen_naturecnn', 'mfec', 'nec', 'nec_bonus', 'nec_cnn', 'nec_dqncnn', 'nec_naturecnn', 'nec_refresh', 'random']
+  File "/Users/felipeduarte/IdeaProjects/snake/src/snake_rl/agents/__init__.py", line 52, in make_agent
+    raise ValueError(f"unknown agent {name!r}; choose from {sorted(AGENTS)}")
+ValueError: unknown agent 'nec_naturecnn --opt rmsprop --lr 2.5e-4'; choose from ['dqn', 'dqn_cnn', 'dqn_dqncnn', 'dqn_naturecnn', 'dqn_nstep', 'dqn_nstep_cnn', 'dqn_nstep_naturecnn', 'ec_frozen', 'ec_frozen_cnn', 'ec_frozen_naturecnn', 'mfec', 'nec', 'nec_bonus', 'nec_cnn', 'nec_dqncnn', 'nec_naturecnn', 'nec_refresh', 'random']
+nec_naturecnn_rmsprop_lr0.00025 1 1099 eps, 1430s
+nec_naturecnn_rmsprop_lr0.00025 1 474 eps, 1471s
+dqn_naturecnn 1 440 eps, 1511s
+dqn_naturecnn 1 825 eps, 1513s
+nec_naturecnn_rmsprop_lr0.00025_eps0.05_epsd50000_fc2-250000-600000_reloc 1 6453 eps, 1970s
+dqn_naturecnn_eps0.05_epsd50000_fc2-250000-600000_reloc 1 5643 eps, 2049s

@@ -1,0 +1,13 @@
+---
+repo_root: "{{ playbook_dir | dirname }}"
+ccad_user: "{{ (lookup('ansible.builtin.file', repo_root + '/.env.local', errors='ignore') | default('', true)) | regex_findall('^CCAD_USERNAME=(.+)$', multiline=True) | first | default('', true) }}"
+
+# CPU partition. `short` needs short_qos (the account's default dev_qos is not valid there; confirmed in dl2l).
+# MaxTime of `short` is 1 day.
+ccad_partition: short
+ccad_qos: short_qos
+
+# Everything lives under $HOME (shared NFS, so the compute nodes see it). Compute nodes have no internet: the venv is
+# built on the login node.
+remote_dir: snake
+ccad_python: /usr/bin/python3.11   # the login node's default python3 is 3.9; snake needs >= 3.10

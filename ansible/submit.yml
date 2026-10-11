@@ -1,0 +1,63 @@
+---
+# Submit an experiment spec as one SLURM array job and return immediately (the VPN drops when idle).
+#   cd ansible && ansible-playbook -i inventories/ccad submit.yml -e spec=<name>     # spec = experiments/<name>.yml
+# Collect later with collect.yml. Re-syncs the code first, so the cluster runs what is on this Mac.
+- name: Submit {{ spec }} to CCAD
+  hosts: runner
+  gather_facts: false
+  vars_files:
+    - "experiments/{{ spec }}.yml"
+  tasks:
+    - name: Resolve the login node's $HOME (sbatch directives need absolute paths)
+      ansible.builtin.command: sh -c 'echo $HOME'
+      register: _home
+      changed_when: false
+    - ansible.builtin.set_fact:
+        run_dir: "{{ _home.stdout }}/{{ remote_dir }}/runs/{{ name }}"
+
+    - name: Sync the code
+      ansible.builtin.import_tasks: tasks/sync_code.yml
+
+    - name: Refuse to overwrite a run that is still in the queue
+      ansible.builtin.shell: "squeue -h -u $USER -n snake_{{ name }} | wc -l"
+      register: _queued
+      changed_when: false
+    - ansible.builtin.fail: { msg: "snake_{{ name }} still has {{ _queued.stdout }} task(s) queued or running; collect or scancel first" }
+      when: _queued.stdout | int > 0
+
+    - name: Create a fresh run directory
+      ansible.builtin.shell: "rm -rf {{ run_dir }}/done {{ run_dir }}/logs && mkdir -p {{ run_dir }}/logs {{ run_dir }}/done"
+      changed_when: true
+
+    - name: Write the job list (one snake-run line per task)
+      ansible.builtin.copy:
+        content: "{{ jobs | join('\n') }}\n"
+        dest: "{{ run_dir }}/jobs.txt"
+        mode: "0644"
+
+    - name: Render the sbatch script
+      ansible.builtin.template:
+        src: templates/run_tasks.sh.j2
+        dest: "{{ run_dir }}/run_tasks.sh"
+        mode: "0755"
+
+    - name: Submit (no --wait)
+      ansible.builtin.command:
+        cmd: "sbatch run_tasks.sh"
+        chdir: "{{ run_dir }}"
+      register: _submit
+      changed_when: true
+
+    - name: Ensure the local .run directory exists
+      delegate_to: localhost
+      ansible.builtin.file: { path: "{{ repo_root }}/ansible/.run", state: directory, mode: "0755" }
+
+    - name: Persist the job id locally
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: "{{ _submit.stdout | regex_search('[0-9]+$') }}\n"
+        dest: "{{ repo_root }}/ansible/.run/{{ name }}.job"
+        mode: "0644"
+
+    - ansible.builtin.debug:
+        msg: "{{ _submit.stdout }}: {{ jobs | length }} tasks, at most {{ max_parallel }} at once. Check later: ansible-playbook -i inventories/ccad collect.yml -e spec={{ spec }}"
