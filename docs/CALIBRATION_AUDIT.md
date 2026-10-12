@@ -72,3 +72,11 @@ Ordered by how cheaply they settle a deviation.
   (optimizer, target sync, training start), and its values are badly calibrated.
 - "NEC's learned encoder adds nothing" is not affected by C1/C2 (both concern DQN), but it is open to C3 (eviction) and C4 (reward scale).
 - The Snake results sit on the same set-up (Adam DQN, N = 50, capacity 2e4); I have not re-measured their Q calibration.
+
+## Update 2026-10-12: C1 and C4 outcomes ([report](experiments/pacman_calibration/REPORT.md))
+- **C1 (DQN with RMSProp 2.5e-4): the optimizer is not the cause of the inflated Q.** Max-Q is still 7.7x the collected return (Adam: 8.7x); score 406 against 426. **C2 (target sync) is now the live candidate**; so are the training start and plain N = 1 bootstrapping.
+- **C4 (Atari reward units): NEC 357 to 519 (same agent, lr 1e-4); with the paper's lr 7.92e-6, 483.** NEC's memory values are calibrated (ratio 1.04-1.10). The learned encoder now beats `ec_frozen` by 119-155 points; `ec_frozen` and MFEC do not move with the scale (a working control).
+- **Clipped DQN (the paper's DQN):** 478, with half the ghosts (0.41 against 0.85-1.01) and twice the pellets; NEC arms are 483 and 519, so NEC is not clearly ahead of the paper's DQN (ranges overlap).
+- **New deviation found:** our global-norm gradient clip (10, not in the papers) clips 100% of NEC's updates in Atari units (45% in small units). This sits between the reward-scale result and the paper's set-up, and has not been tested without the clip.
+- **Confound:** the Atari-unit arms also drop the death penalty and the clear bonus.
+- Reward scale, not only optimizer or encoder, was therefore a first-order calibration gap in the first ladder (the DIAGNOSIS hypothesis about 7.92e-6 is supported in direction: it works on this scale).
