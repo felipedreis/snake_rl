@@ -61,12 +61,13 @@ Ordered by how cheaply they settle a deviation.
 | # | Check | Settles | Cost |
 |---|---|---|---|
 | C1 | DQN with RMSProp 2.5e-4 (paper) against Adam 5e-4, then re-measure max Q against MC return | whether DQN's inflation and its lead come from the optimizer | 5 seeds x ~2 h on CCAD; no code change (`--opt rmsprop --lr 2.5e-4`) |
-| C2 | DQN target sync at the paper's ratio (every 10k updates); needs a `target_every` run setting | the other candidate for C1 | small code change |
+| C2 | *Only if C1 does not fix DQN's inflated Q:* DQN target sync at the paper's ratio (every 10k updates). Weak at our scale: that is 2-3 syncs in a 100k-step run | the other candidate cause of the inflation | small code change (`target_every` run setting) |
 | C3 | NEC with the paper's N = 100 and capacity above the run length (1e5 per action), nothing else changed | whether eviction matters (the geometry result "visited states far from keys" has eviction as a competing explanation) | needs run-level overrides for `N` and `dnd_cap` |
-| C4 | Reward in Atari units (pellet 10, power 50, ghost 200, unclipped for NEC, clipped to [-1,1] for DQN) with NEC at the Atari lr 7.92e-6 | the DIAGNOSIS hypothesis that 7.92e-6 only moves the encoder when returns are in the hundreds | needs a reward-scale setting in `MsPacman` |
+| C4 | Atari reward units (pellet 10, power 50, ghost 200, death -1 or none) with two arms: NEC and MFEC unclipped, DQN with rewards clipped to [-1, 1] as in the paper (the logged score stays raw). NEC also at the Atari lr 7.92e-6. **Our current DQN is unclipped and keeps the 20x ghost-to-pellet gap, so it is easier than the paper's DQN.** Also count ghosts eaten per episode for each arm | the DIAGNOSIS hypothesis that 7.92e-6 only moves the encoder when returns are in the hundreds, and whether clipping is what keeps DQN from eating ghosts (a hypothesis, not yet shown) | needs a reward-scale setting in `MsPacman` and a reward-clip option applied agent-side in `run.py` |
 | C5 | Longer budget: 1M frames (250k agent steps), 10 seeds | how much of the Snake/Pac-Man gap is only budget | ~4-8 h per NEC run |
 
 ## What this means for the earlier conclusions
+- Our DQN also sees unclipped, magnitude-preserving rewards, unlike the paper's clipped DQN, which makes it easier than the paper's.
 - The Pac-Man ordering (DQN 426, MFEC 390, `ec_frozen` 389, NEC 357) should be read as **provisional**: DQN is the arm furthest from its paper set-up
   (optimizer, target sync, training start), and its values are badly calibrated.
 - "NEC's learned encoder adds nothing" is not affected by C1/C2 (both concern DQN), but it is open to C3 (eviction) and C4 (reward scale).
