@@ -1,0 +1,43 @@
+# Exploratory follow-up to pacman_ladder (see docs/CALIBRATION_AUDIT.md, checks C1 and C4); not pre-registered.
+# A  DQN with the paper's optimizer (RMSProp 2.5e-4), same rewards as the first ladder          -> C1
+# B  DQN with RMSProp 2.5e-4, Atari reward units and rewards clipped to [-1,1] (the paper's DQN) -> C4, DQN arm
+# C/D NEC on Atari reward units, unclipped, RMSProp lr 7.92e-6 (secondary-source Atari value) and 1e-4 (our earlier choice)
+# E/F ec_frozen and MFEC on Atari reward units (unclipped)
+# Scores are Ms. Pac-Man points in every arm, so they compare directly with pacman_ladder (random baseline reused from there).
+name: pacman_calibration
+time: "12:00:00"
+mem: 8G
+max_parallel: 30
+results_dir: exp_pacman_calibration
+pull_agents: true
+jobs:
+  - "dqn_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --save-agent"
+  - "dqn_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --save-agent"
+  - "dqn_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --save-agent"
+  - "dqn_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --save-agent"
+  - "dqn_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --save-agent"
+  - "dqn_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --reward-units atari --clip-reward --save-agent"
+  - "dqn_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --reward-units atari --clip-reward --save-agent"
+  - "dqn_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --reward-units atari --clip-reward --save-agent"
+  - "dqn_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --reward-units atari --clip-reward --save-agent"
+  - "dqn_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 2.5e-4 --reward-units atari --clip-reward --save-agent"
+  - "nec_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 7.92e-6 --reward-units atari --save-agent"
+  - "nec_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 7.92e-6 --reward-units atari --save-agent"
+  - "nec_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 7.92e-6 --reward-units atari --save-agent"
+  - "nec_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 7.92e-6 --reward-units atari --save-agent"
+  - "nec_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 7.92e-6 --reward-units atari --save-agent"
+  - "nec_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 1e-4 --reward-units atari --save-agent"
+  - "nec_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 1e-4 --reward-units atari --save-agent"
+  - "nec_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 1e-4 --reward-units atari --save-agent"
+  - "nec_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 1e-4 --reward-units atari --save-agent"
+  - "nec_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --opt rmsprop --lr 1e-4 --reward-units atari --save-agent"
+  - "ec_frozen_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari --save-agent"
+  - "ec_frozen_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari --save-agent"
+  - "ec_frozen_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari --save-agent"
+  - "ec_frozen_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari --save-agent"
+  - "ec_frozen_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari --save-agent"
+  - "mfec 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari"
+  - "mfec 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari"
+  - "mfec 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari"
+  - "mfec 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari"
+  - "mfec 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --reward-units atari"
