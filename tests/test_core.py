@@ -832,3 +832,37 @@ def test_pacman_run_writes_results_and_every_pixel_agent_plays(tmp_path):
             nobs, r, term, trunc = env.step(a)
             agent.observe(obs, a, r, nobs, term, trunc, t)
             obs = env.reset() if term or trunc else nobs
+
+
+def test_pacman_atari_reward_units_and_clipped_agent_reward(tmp_path):
+    env = MsPacman(seed=0, frame_skip=1, reward_units="atari")
+    env.reset()
+    env.ghosts = [(1, 1), (1, 1)]
+    env.pac, env.tick = (12, 5), 1
+    env.pellets[12, 4] = True
+    assert env.step(3)[1] == pytest.approx(10.0)
+    env.ghosts, env.prev = [(5, 5), (1, 1)], [(5, 5), (1, 1)]
+    env.pac, env.tick = (5, 4), 1
+    _, r, term, _ = env.step(1)
+    assert term and r == 0.0  # dying costs nothing in Atari units
+    with pytest.raises(ValueError):
+        MsPacman(reward_units="nope")
+    # the agent sees clipped rewards, the log keeps the raw score; Snake rejects the pacman-only option
+    seen = []
+    from snake_rl.agents import AGENTS
+    orig = AGENTS["random"]
+    class Spy:
+        def __init__(self, a): self.a = a
+        def act(self, obs, eps, t=None): return self.a.act(obs, eps, t)
+        def observe(self, o, a, r, n, te, tr, t): seen.append(r); self.a.observe(o, a, r, n, te, tr, t)
+        def __getattr__(self, k): return getattr(self.a, k)
+    AGENTS["random"] = lambda env, rng: Spy(orig(env, rng))
+    try:
+        main("random", 1, 400, root=str(tmp_path), game="pacman", reward_units="atari", clip_reward=True)
+    finally:
+        AGENTS["random"] = orig
+    d = json.load(open(tmp_path / "pac_px_atari_clip" / "random_s1.json"))
+    assert max(seen) <= 1.0 and min(seen) >= -1.0 and max(seen) == 1.0
+    assert d["reward_units"] == "atari" and d["clip_reward"] and max(e[1] for e in d["episodes"]) >= 10
+    with pytest.raises(ValueError):
+        main("random", 1, 10, root=str(tmp_path), reward_units="atari")

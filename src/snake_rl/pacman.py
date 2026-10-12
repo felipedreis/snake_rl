@@ -9,7 +9,8 @@ preprocessing of DQN and NEC), summing the reward and stopping early if the epis
 shortest path with probability `CHASE_P`, else wander; they do not reverse unless forced. After a power pellet, ghosts are
 scared for `SCARE_TICKS` ticks: they wander and can be eaten (they then return to the house). All randomness is `self.rng`.
 
-Reward: pellet +0.1, power pellet +0.5, ghost +2.0, caught by a ghost -1 (terminal), board cleared +1 (terminal).
+Reward (`reward_units="small"`, default): pellet +0.1, power pellet +0.5, ghost +2.0, caught by a ghost -1 (terminal), board cleared +1
+(terminal). `reward_units="atari"`: 10 / 50 / 200 points and nothing for dying or clearing (the Atari game's own scale).
 `score` is in Ms. Pac-Man points (10 / 50 / 200) and `foods` counts pellets (power ones included).
 One life. The episode is truncated after `max_idle` ticks without eating a pellet (the value target bootstraps through it).
 
@@ -42,14 +43,20 @@ MAZE = [
 DIRS = [(-1, 0), (0, 1), (1, 0), (0, -1)]  # up, right, down, left
 GRAY = dict(wall=60, pellet=110, power=160, ghost=200, scared=230, pac=255)
 PAC_EVERY, GHOST_EVERY, SCARE_TICKS, CHASE_P = 2, 3, 40, 0.7
-R_PELLET, R_POWER, R_GHOST, R_DEATH, R_CLEAR = 0.1, 0.5, 2.0, -1.0, 1.0
+# Reward per event, by unit set. "small" (default): points / 100, with -1 for death and +1 for clearing the board.
+# "atari": the game's own points (10 / 50 / 200), nothing for dying or clearing, as in the Atari game, so returns run into the hundreds.
+REWARDS = dict(small=dict(pellet=0.1, power=0.5, ghost=2.0, death=-1.0, clear=1.0),
+               atari=dict(pellet=10.0, power=50.0, ghost=200.0, death=0.0, clear=0.0))
 POINTS = dict(pellet=10, power=50, ghost=200)
 
 
 class MsPacman:
     DIRS = DIRS
 
-    def __init__(self, seed=0, frame_skip=4, frame_stack=None, max_idle=None):
+    def __init__(self, seed=0, frame_skip=4, frame_stack=None, max_idle=None, reward_units="small"):
+        if reward_units not in REWARDS:
+            raise ValueError(f"unknown reward_units {reward_units!r}; choose from {sorted(REWARDS)}")
+        self.reward_units, self.R = reward_units, REWARDS[reward_units]
         self.n = len(MAZE)
         if PIXELS % self.n:
             raise ValueError("the maze side must divide 84")
@@ -122,11 +129,11 @@ class MsPacman:
             if g != self.pac:
                 continue
             if self.scared > 0:
-                r += R_GHOST
+                r += self.R["ghost"]
                 self.score += POINTS["ghost"]
                 self.ghosts[i] = self.prev[i] = self.ghost_starts[i % self.n_ghosts]
             else:
-                return R_DEATH, True
+                return self.R["death"], True
         return r, False
 
     def _tick(self):
@@ -143,12 +150,12 @@ class MsPacman:
                 self.pac = q
                 if self.pellets[q]:
                     self.pellets[q] = False
-                    r += R_PELLET
+                    r += self.R["pellet"]
                     self.score += POINTS["pellet"]
                     self.foods, self.left, self.idle = self.foods + 1, self.left - 1, 0
                 elif self.power[q]:
                     self.power[q] = False
-                    r += R_POWER
+                    r += self.R["power"]
                     self.score += POINTS["power"]
                     self.foods, self.left, self.idle = self.foods + 1, self.left - 1, 0
                     self.scared = SCARE_TICKS
@@ -157,7 +164,7 @@ class MsPacman:
                     return h, True
                 r += h
                 if self.left == 0:
-                    return r + R_CLEAR, True
+                    return r + self.R["clear"], True
         if self.tick % GHOST_EVERY == 0:
             for i in range(self.n_ghosts):
                 self._ghost_move(i)
