@@ -1,5 +1,7 @@
 # NEC on Snake — ablation ladder
 
+**This study is closed (2026-10-12).** What it found, and why it stopped: [docs/STUDY_SUMMARY.md](docs/STUDY_SUMMARY.md).
+
 Pure-NumPy reproduction of Neural Episodic Control (Pritzel et al., 2017) on a 7x7 Snake,
 with hand-derived gradients through the DND.
 
