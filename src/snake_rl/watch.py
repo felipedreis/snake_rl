@@ -22,28 +22,44 @@ import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
 from snake_rl.env import ACTION_MODES, MAPS, RENDERS, Snake
+from snake_rl.pacman import MsPacman
 
 ACTION_NAMES = dict(relative=("straight", "right", "left"), absolute=("up", "right", "down", "left"))
 ARROWS = "↑→↓←"  # by env.dir: up, right, down, left
 # 256-colour palette for the terminal grid; RGB twins for the matplotlib view.
-TERM = {"empty": 236, "wall": 244, "body": 34, "head": 46, "food": 196, "bonus": 220}
+TERM = {"empty": 236, "wall": 244, "body": 34, "head": 46, "food": 196, "bonus": 220,
+        "pellet": 180, "power": 214, "ghost": 160, "scared": 33, "pac": 226}
 RGB = {"empty": (0.12, 0.13, 0.15), "wall": (0.55, 0.58, 0.62), "body": (0.10, 0.62, 0.30),
-       "head": (0.55, 0.95, 0.45), "food": (0.90, 0.22, 0.20), "bonus": (0.98, 0.78, 0.15)}
+       "head": (0.55, 0.95, 0.45), "food": (0.90, 0.22, 0.20), "bonus": (0.98, 0.78, 0.15),
+       "pellet": (0.75, 0.68, 0.55), "power": (0.98, 0.72, 0.20), "ghost": (0.85, 0.15, 0.20),
+       "scared": (0.20, 0.45, 0.90), "pac": (0.98, 0.90, 0.10)}
 
 
-def load(spec, size, map, bonus, seed, render="grid", actions="relative"):
+def new_env(board, **kw):
+    """The watch env of a `load` board: Snake, or MsPacman when board carries game='pacman'."""
+    board = dict(board)
+    if board.pop("game", "snake") == "pacman":
+        return MsPacman(**board, **{k: v for k, v in kw.items() if k == "seed"})
+    return Snake(**board, **kw)
+
+
+def load(spec, size, map, bonus, seed, render="grid", actions="relative", game="snake", frame_skip=4):
     """-> (agent, Snake settings, label)."""
     if os.path.exists(spec):
         with open(spec, "rb") as f:
             ck = pickle.load(f)
+        if ck.get("game") == "pacman":
+            board = dict(game="pacman", frame_skip=ck.get("frame_skip", 4), frame_stack=ck.get("frame_stack"))
+            return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
         board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0),
                      render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0),
                      actions=ck.get("actions", "relative"))
         return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")
-    board = dict(size=size, map=map, bonus=bonus, distractors=0, render=render, actions=actions)
-    agent = make_agent(spec, Snake(**board), np.random.default_rng(seed))
+    board = (dict(game="pacman", frame_skip=frame_skip) if game == "pacman"
+             else dict(size=size, map=map, bonus=bonus, distractors=0, render=render, actions=actions))
+    agent = make_agent(spec, new_env(board), np.random.default_rng(seed))
     return agent, board, f"{spec} (untrained)"
 
 
@@ -72,7 +88,8 @@ def frames(agent, env, eps, episodes, rng, food_radius):
                 obs, r, term, trunc = env.step(a)
                 step += 1
                 if term or trunc:
-                    why = "idle limit" if trunc else ("board full" if r > 0 else "crashed")
+                    pac = isinstance(env, MsPacman)
+                    why = "idle limit" if trunc else ("board full" if r > 0 else ("caught by a ghost" if pac else "crashed"))
                     yield dict(ep=ep, step=step, q=None, dist=None, a=None, end=why)
                     break
     finally:
@@ -81,6 +98,13 @@ def frames(agent, env, eps, episodes, rng, food_radius):
 
 def cells(env):
     """Board as an n x n array of cell kinds."""
+    if isinstance(env, MsPacman):
+        g = np.full((env.n, env.n), "empty", object)
+        g[env.walls], g[env.pellets], g[env.power] = "wall", "pellet", "power"
+        for r, c in env.ghosts:
+            g[r, c] = "scared" if env.scared > 0 else "ghost"
+        g[env.pac] = "pac"
+        return g
     g = np.full((env.n, env.n), "empty", object)
     for r, c in env.wall_set:
         g[r, c] = "wall"
@@ -95,10 +119,13 @@ def cells(env):
 
 
 def panel(f, env, label, eps, delay):
+    pac = isinstance(env, MsPacman)
     lines = [f"\x1b[1m{label}\x1b[0m", f"ε {eps:g} · {1 / delay:.0f} steps/s" if delay > 0 else f"ε {eps:g}", "",
-             f"episode {f['ep']}   step {f['step']}", f"score {env.score:g}   fruit {env.foods}   length {len(env.body)}",
-             f"heading {ARROWS[env.dir]}   idle {env.idle}/{env.max_idle}"]
-    if env.bonus_pos is not None:
+             f"episode {f['ep']}   step {f['step']}",
+             (f"score {env.score:g}   pellets {env.foods}/103   scared {env.scared}" if pac
+              else f"score {env.score:g}   fruit {env.foods}   length {len(env.body)}"),
+             (f"idle {env.idle}/{env.max_idle} ticks" if pac else f"heading {ARROWS[env.dir]}   idle {env.idle}/{env.max_idle}")]
+    if not pac and env.bonus_pos is not None:
         lines.append(f"\x1b[38;5;{TERM['bonus']}mbonus! {env.bonus_left} steps left\x1b[0m")
     lines.append("")
     if f["end"]:
@@ -107,14 +134,14 @@ def panel(f, env, label, eps, delay):
         q = f["q"]
         lo, hi = min(q.min(), 0.0), max(q.max(), 1e-9)
         lines.append("Q-values (what the agent expects):")
-        for i, name in enumerate(ACTION_NAMES[env.actions]):
+        for i, name in enumerate(ACTION_NAMES[getattr(env, 'actions', 'absolute')]):
             bar = "█" * int(round(20 * (q[i] - lo) / (hi - lo + 1e-12)))
             mark = "\x1b[1m◀ taken\x1b[0m" if i == f["a"] else ""
             lines.append(f"  {name:8s} {q[i]:+7.3f} {bar:20s} {mark}")
         if f["dist"] is not None:
             lines.append(f"  memory distance {f['dist']:.3g}")
     else:
-        lines.append(f"action: {ACTION_NAMES[env.actions][f['a']]}")
+        lines.append(f"action: {ACTION_NAMES[getattr(env, 'actions', 'absolute')][f['a']]}")
     lines += ["", "\x1b[2mspace pause · +/- speed · n next · q quit\x1b[0m"]
     return lines
 
@@ -187,7 +214,7 @@ def run_matplotlib(gen, env, label, eps, delay, gif=None, max_frames=600):
     img = ax.imshow(np.zeros((env.n, env.n, 3)), interpolation="nearest")
     ax.set_xticks([]), ax.set_yticks([])
     title = ax.set_title(label, fontsize=10)
-    bars = axq.barh(ACTION_NAMES[env.actions][::-1], [0] * env.n_actions, color="#8a8984")
+    bars = axq.barh(ACTION_NAMES[getattr(env, 'actions', 'absolute')][::-1], [0] * env.n_actions, color="#8a8984")
     axq.set_title("Q-values (taken action highlighted)", fontsize=10)
     axq.axvline(0, color="#8a8984", lw=0.8)
     axq.spines[["top", "right"]].set_visible(False)
@@ -238,14 +265,15 @@ def cli():
     ap.add_argument("--gui", action="store_true", help="matplotlib window instead of the terminal")
     ap.add_argument("--gif", default=None, help="save a GIF instead of showing")
     ap.add_argument("--max-frames", type=int, default=600, help="GIF length cap")
+    ap.add_argument("--game", default="snake", choices=("snake", "pacman"), help="game of an untrained agent name")
     ap.add_argument("--size", type=int, default=7, help="board for an untrained agent name")
     ap.add_argument("--map", default="open", choices=MAPS)
     ap.add_argument("--bonus", type=float, default=0.0)
     ap.add_argument("--render", default="grid", choices=RENDERS, help="observation for an untrained agent name")
     ap.add_argument("--actions", default="relative", choices=ACTION_MODES, help="action space for an untrained agent name")
     a = ap.parse_args()
-    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed, a.render, a.actions)
-    env = Snake(seed=a.seed + 5000, relocate_food=a.relocate, **board)
+    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed, a.render, a.actions, a.game)
+    env = new_env(board, seed=a.seed + 5000, **({} if board.get("game") == "pacman" else dict(relocate_food=a.relocate)))
     gen = frames(agent, env, a.eps, a.episodes, np.random.default_rng(a.seed + 6000), a.food_radius)
     if a.gif:
         import itertools

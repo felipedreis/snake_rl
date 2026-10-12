@@ -54,6 +54,7 @@ def main(DIR="results/d0", out_dir="figures"):
         raise SystemExit(f"no results in {DIR}")
     first = json.load(open(files[0]))
     STEPS, size = first["steps"], first.get("size", 7)
+    pacman = first.get("game") == "pacman"
     edges = np.arange(0, STEPS + 1, STEPS // 20)
 
     data = {}
@@ -85,14 +86,15 @@ def main(DIR="results/d0", out_dir="figures"):
                 per_seed = np.nanmean(C[:, (edges[1:] > lo) & (edges[1:] <= hi)], 1)
                 marks.append((per_seed.mean(), per_seed.std() / np.sqrt(len(per_seed))))
             tables[k].append((lab, marks, np.mean([r[2] for r in data[key]])))
-    axes[0].set_ylabel("fruit eaten per episode")
-    axes[1].set_ylabel("fruit eaten per 1000 steps")
+    unit = "points" if pacman else "fruit eaten"
+    axes[0].set_ylabel(f"{unit} per episode")
+    axes[1].set_ylabel(f"{unit} per 1000 steps")
     for ax in axes:
         ax.set_xlabel("environment steps (thousands)")
         ax.grid(alpha=0.3)
     axes[0].legend(fontsize=8)
     tag = os.path.basename(os.path.normpath(DIR))
-    fig.suptitle(f"Snake {size}x{size}, {tag}: NEC ablation ladder (mean +- s.e. over seeds)")
+    fig.suptitle(f"{'Ms. Pac-Man' if pacman else f'Snake {size}x{size}'}, {tag}: NEC ablation ladder (mean +- s.e. over seeds)")
     fig.tight_layout()
     os.makedirs(out_dir, exist_ok=True)
     fig.savefig(f"{out_dir}/learning_curves_{tag}.png", dpi=150)

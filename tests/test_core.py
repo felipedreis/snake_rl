@@ -7,6 +7,7 @@ from snake_rl.agents import AGENTS, make_agent
 from snake_rl.agents.mfec import MFECAgent
 from snake_rl.env import Snake
 from snake_rl.nn import MLP
+from snake_rl.pacman import MsPacman
 from snake_rl.returns import NStep
 from snake_rl.run import epsilon, food_radius, main
 
@@ -719,3 +720,115 @@ def test_geometry_analysis_of_a_checkpoint(name, tmp_path):
         assert len(res["memory"]["coherence"]) == 3 and all(0 <= c for c in res["memory"]["coherence"] if c is not None)
     for lab in ("head", "food", "offset_board", "offset_ego"):
         assert 0 <= res["onpolicy"][lab]["purity"] <= 1 and 0 <= res["onpolicy"][lab]["chance"] <= 1
+
+
+# ---- Ms. Pac-Man ----
+
+def _pac(**kw):
+    env = MsPacman(seed=0, **kw)
+    env.reset()
+    return env
+
+
+def test_pacman_observation_is_the_atari_pixel_stack():
+    env = MsPacman(seed=0)
+    o = env.reset()
+    assert env.obs_shape == (4, 84, 84) and o.shape == (env.obs_dim,) and o.dtype == np.float32
+    k = np.round(o * 255)
+    assert np.allclose(o * 255, k) and set(np.unique(k)) <= {0, 60, 110, 160, 200, 230, 255}
+    assert np.array_equal(env.static_obs(), o)  # a fresh episode is one frame repeated
+    before = list(env._frames)
+    env.static_obs()
+    assert all(np.array_equal(a, b) for a, b in zip(before, env._frames))
+
+
+def test_pacman_walls_pellets_and_power():
+    env = _pac(frame_skip=1)
+    env.ghosts = [(1, 1), (1, 1)]  # far away
+    r0 = env.pac
+    env.step(0 if env.walls[r0[0] - 1, r0[1]] else 2)  # tick 1: Pac-Man does not move yet (moves every 2nd tick)
+    assert env.pac == r0
+    env.pac, env.left = (12, 5), env.left
+    env.pellets[12, 4] = True
+    env.tick = 1
+    _, r, term, _ = env.step(3)  # tick 2: moves left onto a pellet
+    assert env.pac == (12, 4) and r == pytest.approx(0.1) and env.foods == 1 and not term
+    env.pac, env.tick = (12, 2), 3
+    env.step(3)  # onto the bottom-left power pellet at (12, 1)
+    assert env.pac == (12, 1) and env.scared > 0 and env.score == 10 + 50
+    env.pac, env.tick = (11, 1), 5
+    before = env.pac
+    env.step(3)  # (11, 0) is a wall
+    assert env.pac == before
+
+
+def test_pacman_ghost_catches_or_is_eaten():
+    env = _pac(frame_skip=1)
+    env.ghosts, env.prev = [(5, 5), (1, 1)], [(5, 5), (1, 1)]
+    env.pac, env.tick = (5, 4), 1
+    _, r, term, _ = env.step(1)  # steps right into the ghost
+    assert term and r == -1.0
+    env = _pac(frame_skip=1)
+    env.ghosts, env.prev, env.scared = [(5, 5), (1, 1)], [(5, 5), (1, 1)], 30
+    env.pac, env.tick = (5, 4), 1
+    _, r, term, _ = env.step(1)
+    assert not term and r == pytest.approx(2.0 + 0.1) and env.score == 200 + 10 and env.ghosts[0] == env.ghost_starts[0]
+
+
+def test_pacman_clearing_the_board_terminates_with_a_bonus():
+    env = _pac(frame_skip=1)
+    env.ghosts = [(1, 1), (1, 1)]
+    env.pellets[:] = False
+    env.power[:] = False
+    env.pellets[12, 4] = True
+    env.left, env.pac, env.tick = 1, (12, 5), 1
+    _, r, term, _ = env.step(3)
+    assert term and r == pytest.approx(0.1 + 1.0)
+
+
+def test_pacman_frame_skip_repeats_the_action_and_sums_reward():
+    a, b = _pac(frame_skip=4), _pac(frame_skip=1)
+    for env in (a, b):
+        env.ghosts = [(1, 1), (1, 1)]
+    ra = a.step(1)[1]
+    rb = sum(b.step(1)[1] for _ in range(4))
+    assert ra == pytest.approx(rb) and a.pac == b.pac and a.tick == b.tick == 4
+
+
+def test_pacman_same_seed_same_game_and_truncation():
+    def play(seed):
+        env, rng, out = MsPacman(seed=seed), np.random.default_rng(1), []
+        env.reset()
+        for _ in range(60):
+            o, r, term, trunc = env.step(int(rng.integers(4)))
+            out.append((r, term, trunc, env.pac, tuple(env.ghosts)))
+            if term or trunc:
+                env.reset()
+        return out
+    assert play(3) == play(3)
+    env = _pac(max_idle=8)  # Pac-Man pushes against a wall: nothing is eaten, so the idle limit cuts the episode
+    assert env.walls[env.pac[0], env.pac[1] - 1]
+    outs = []
+    for _ in range(2):
+        env.ghosts, env.prev = [(1, 1), (1, 1)], [(1, 1), (1, 1)]
+        outs.append(env.step(3)[2:])
+    assert outs == [(False, False), (False, True)]
+
+
+def test_pacman_run_writes_results_and_every_pixel_agent_plays(tmp_path):
+    main("dqn", 1, 300, root=str(tmp_path), game="pacman", frame_skip=4)
+    d = json.load(open(tmp_path / "pac_px" / "dqn_s1.json"))
+    assert d["game"] == "pacman" and d["size"] == 14 and d["frame_skip"] == 4 and d["episodes"]
+    with pytest.raises(ValueError):
+        main("dqn", 1, 10, root=str(tmp_path), game="pacman", map="rooms")
+    for name in sorted(AGENTS):
+        if not name.endswith("naturecnn"):
+            continue
+        env = MsPacman(seed=0)
+        agent, obs = make_agent(name, env, np.random.default_rng(0)), env.reset()
+        for t in range(1, 1101):
+            a = agent.act(obs, 0.5, t)
+            assert a in range(4)
+            nobs, r, term, trunc = env.step(a)
+            agent.observe(obs, a, r, nobs, term, trunc, t)
+            obs = env.reset() if term or trunc else nobs

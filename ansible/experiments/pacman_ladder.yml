@@ -1,0 +1,36 @@
+# Exploratory (not pre-registered): the same agents on the Ms. Pac-Man env (pixels, 14x14, frame skip 4, 4 absolute actions) to see
+# whether the game, not the agent, is what limits NEC. Settings carried over from the Snake experiments: DQN Adam 5e-4 (default),
+# NEC RMSProp 1e-4 (best of the lr sweep), ec_frozen as the no-learning-embedding reference, MFEC defaults, random baseline.
+# 5 arms x seeds 1-5, 100k steps, evaluation (20 episodes, eps 0.05) every 10k steps.
+name: pacman_ladder
+time: "12:00:00"
+mem: 8G
+max_parallel: 25
+results_dir: exp_pacman_ladder
+pull_agents: false
+jobs:
+  - "dqn_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "dqn_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "dqn_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "dqn_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "dqn_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "nec_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent --opt rmsprop --lr 1e-4"
+  - "nec_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent --opt rmsprop --lr 1e-4"
+  - "ec_frozen_naturecnn 1 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "ec_frozen_naturecnn 2 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "ec_frozen_naturecnn 3 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "ec_frozen_naturecnn 4 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "ec_frozen_naturecnn 5 100000 --game pacman --eval-every 10000 --eval-episodes 20 --save-agent"
+  - "mfec 1 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "mfec 2 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "mfec 3 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "mfec 4 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "mfec 5 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "random 1 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "random 2 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "random 3 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "random 4 100000 --game pacman --eval-every 10000 --eval-episodes 20"
+  - "random 5 100000 --game pacman --eval-every 10000 --eval-episodes 20"
