@@ -14,6 +14,8 @@ at epsilon 0.05 every 10k steps. Table: [results.md](results.md). Figure: [eval_
 
 ## Results (mean of the evaluation score over 80k, 90k and 100k steps; s.d. over seeds in brackets)
 
+![Evaluation score by training step (mean over 5 seeds) for the calibration arms (solid) and the first ladder (dashed).](eval_curves.png)
+
 | Arm | O1 (points) | Seeds | Eval episode length | Ghosts / episode | Pellets / episode |
 |---|---|---|---|---|---|
 | random (ladder) | 56 (6) | 63, 61, 46, 51, 58 | 7 | 0.05 | 4.8 |

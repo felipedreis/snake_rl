@@ -15,6 +15,8 @@ Outcome O1 = mean evaluation score over the last three evaluations (80k, 90k, 10
 
 ## Results
 
+![Learning curves of the five agents on Ms. Pac-Man (mean ± s.e. over 5 seeds). The axes say "fruit"; the unit is points.](learning_curves_pac_px.png)
+
 | Agent | O1 (points), mean (s.d.) | Seeds | Eval episode length (agent steps) | Wall s per run |
 |---|---|---|---|---|
 | random | 56 (6) | 63, 61, 46, 51, 58 | 6.9 | 12 |

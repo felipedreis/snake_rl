@@ -13,6 +13,8 @@ Table: [results.md](results.md). Figure: [eval_curves.png](eval_curves.png). Scr
 
 ## Results (mean of the evaluation score over 80k, 90k and 100k steps; s.d. over seeds in brackets)
 
+![Evaluation score by training step (mean over 5 seeds) for the C2 and C3 arms, the base arms and the first ladder (dashed).](eval_curves.png)
+
 | Arm | O1 (points) | Seeds | Eval episode length | Ghosts / ep | Pellets / ep | Memory rows (evictions) |
 |---|---|---|---|---|---|---|
 | ladder DQN Adam 5e-4 | 426 (39) | 425, 485, 442, 367, 409 | 34 | 1.01 | 15.0 | - |
