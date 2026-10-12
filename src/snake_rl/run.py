@@ -1,12 +1,13 @@
 """Run one (agent, seed) and save per-episode scores.
 
 usage: snake-run <agent> <seed> <steps> [--distractors D] [--size n] [--eps-floor F] [--eps-decay N]
-                 [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--actions relative|absolute] [--probe-every K [--probe-far]] [--game snake|pacman [--frame-skip K] [--reward-units small|atari]] [--clip-reward] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
+                 [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--actions relative|absolute] [--probe-every K [--probe-far]] [--game snake|pacman [--frame-skip K] [--reward-units small|atari]] [--clip-reward] [--agent-kw KEY=VALUE ...] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
                  [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
 agents: see snake_rl.agents.AGENTS
 """
 import argparse
+import ast
 import json
 import os
 import pickle
@@ -46,13 +47,15 @@ def food_radius(t, curriculum, size):
     return r0 if t < hold else int(r0 + (2 * size - r0) * (t - hold) / (n - hold))
 
 
-def run_name(name, eps_floor=EPS_FLOOR, eps_decay=None, food_curriculum=None, food_relocate=False, opt="adam", lr=None):
+def run_name(name, eps_floor=EPS_FLOOR, eps_decay=None, food_curriculum=None, food_relocate=False, opt="adam", lr=None,
+             agent_kw=None):
     """Result file stem (minus seed): the agent name, tagged with any non-default run settings."""
     return (name + ("" if opt == "adam" else f"_{opt}") + ("" if lr is None else f"_lr{lr:g}")
             + ("" if eps_floor == EPS_FLOOR else f"_eps{eps_floor:g}")
             + ("" if eps_decay is None else f"_epsd{eps_decay}")
             + ("" if food_curriculum is None else "_fc" + "-".join(str(x) for x in food_curriculum))
-            + ("_reloc" if food_relocate else ""))
+            + ("_reloc" if food_relocate else "")
+            + "".join(f"_{k}{v:g}" if isinstance(v, (int, float)) else f"_{k}{v}" for k, v in sorted((agent_kw or {}).items())))
 
 
 def evaluate(agent, env, rng, episodes, eps):
@@ -114,7 +117,7 @@ def make_env(game, seed, *, size=7, D=0, map="open", bonus=0.0, food_radius=None
 
 def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
-         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0, actions="relative", probe_far=False, game="snake", frame_skip=4, reward_units="small", clip_reward=False):
+         probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0, actions="relative", probe_far=False, game="snake", frame_skip=4, reward_units="small", clip_reward=False, agent_kw=None):
     if game not in GAMES:
         raise ValueError(f"unknown game {game!r}; choose from {GAMES}")
     if game == "pacman":  # fixed 14x14 maze, pixels, absolute actions: none of the Snake board options apply
@@ -131,7 +134,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
     env = make_env(game, seed + 1000, size=size, D=D, map=map, bonus=bonus,
                    food_radius=food_radius(0, food_curriculum, size), relocate_food=food_relocate, render=render,
                    frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, frame_skip=frame_skip, reward_units=reward_units)
-    agent = make_agent(name, env, rng)
+    agent = make_agent(name, env, rng, **(agent_kw or {}))
     if opt != "adam" or lr is not None:  # the agent's defaults (Adam 5e-4) unless asked; no rng draws
         if not hasattr(agent, "set_optimizer"):
             raise ValueError(f"{name} has no optimizer to set (--opt / --lr)")
@@ -148,9 +151,9 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
     probes = [(0, probe(agent, P, F))] if P is not None else []
     out_dir = (results_dir_pacman(root, frame_skip, frame_stack, reward_units, clip_reward) if game == "pacman"
                else results_dir(D, size, root, map, bonus, render, frame_stack, wall_scale, actions))
-    stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr)}_s{seed}"
+    stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr, agent_kw)}_s{seed}"
     settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, distractors=D, eps_floor=eps_floor,
-                    eps_decay=eps_decay, food_curriculum=food_curriculum, food_relocate=food_relocate, opt=opt, lr=lr, game=game, frame_skip=frame_skip, reward_units=reward_units, clip_reward=clip_reward)
+                    eps_decay=eps_decay, food_curriculum=food_curriculum, food_relocate=food_relocate, opt=opt, lr=lr, game=game, frame_skip=frame_skip, reward_units=reward_units, clip_reward=clip_reward, agent_kw=agent_kw or {})
     # Training telemetry (telemetry.py): window means every train_log_every steps. Also streamed, one JSON line per
     # snapshot, to <stem>.train.jsonl as the run goes (kept afterwards), so `snake-train` can plot a run in progress.
     tlog = hasattr(agent, "train_stats") and train_log_every > 0
@@ -186,7 +189,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
                 live.write(json.dumps({"t": t, **s}) + "\n")
                 live.flush()
     out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
-           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "actions": actions, "probe_far": probe_far, "game": game, "frame_skip": frame_skip, "reward_units": reward_units, "clip_reward": clip_reward, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
+           "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "actions": actions, "probe_far": probe_far, "game": game, "frame_skip": frame_skip, "reward_units": reward_units, "clip_reward": clip_reward, "agent_kw": agent_kw or {}, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
            "evaluations": evals, "probes": probes, "train": train,
            "wallclock_s": time.time() - t0}
@@ -197,7 +200,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
         save(agent, f"{stem}.agent.pkl", steps, settings)
     if tlog:
         live.close()
-    print(run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr), seed, f"{len(log)} eps, {time.time()-t0:.0f}s")
+    print(run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr, agent_kw), seed, f"{len(log)} eps, {time.time()-t0:.0f}s")
 
 
 def cli():
@@ -231,6 +234,9 @@ def cli():
                     help="--game pacman reward scale: 'small' (points/100, -1 for death; default) or 'atari' (10/50/200 points, nothing for dying)")
     ap.add_argument("--clip-reward", action="store_true",
                     help="the agent learns from rewards clipped to [-1, 1], as the DQN paper's does (scores are still logged raw)")
+    ap.add_argument("--agent-kw", action="append", default=[], metavar="KEY=VALUE",
+                    help="override an agent constructor setting, e.g. target_every=40000, N=100, dnd_cap=100000 (repeatable; "
+                         "recorded in the JSON and the file name)")
     ap.add_argument("--opt", default="adam", choices=["adam", "rmsprop"],
                     help="optimizer of the gradient-trained agents (rmsprop: rho 0.95, eps 1e-2, as in the DQN/NEC papers)")
     ap.add_argument("--lr", type=float, default=None, help="optimizer learning rate (default: the agent's, Adam 5e-4)")
@@ -260,7 +266,8 @@ def cli():
          eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
          train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render,
          opt=a.opt, lr=a.lr, frame_stack=a.frame_stack, wall_scale=a.wall_scale, actions=a.actions, probe_far=a.probe_far,
-         game=a.game, frame_skip=a.frame_skip, reward_units=a.reward_units, clip_reward=a.clip_reward)
+         game=a.game, frame_skip=a.frame_skip, reward_units=a.reward_units, clip_reward=a.clip_reward,
+         agent_kw={k: ast.literal_eval(v) for k, v in (kv.split("=", 1) for kv in a.agent_kw)})
 
 
 if __name__ == "__main__":

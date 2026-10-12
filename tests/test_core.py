@@ -866,3 +866,14 @@ def test_pacman_atari_reward_units_and_clipped_agent_reward(tmp_path):
     assert d["reward_units"] == "atari" and d["clip_reward"] and max(e[1] for e in d["episodes"]) >= 10
     with pytest.raises(ValueError):
         main("random", 1, 10, root=str(tmp_path), reward_units="atari")
+
+
+def test_agent_kw_overrides_constructor_settings(tmp_path):
+    env = Snake(size=5, seed=0)
+    nec = make_agent("nec", env, np.random.default_rng(0), dnd_cap=77, N=100)
+    assert nec.dnds[0].cap == 77 and nec.nstep.N == 100
+    assert make_agent("dqn", env, np.random.default_rng(0), target_every=123).target_every == 123
+    assert make_agent("dqn", env, np.random.default_rng(0)).target_every == 1000  # no override: the registered agent
+    main("dqn", 1, 300, size=5, root=str(tmp_path), agent_kw={"target_every": 50})
+    d = json.load(open(tmp_path / "g5_d0" / "dqn_target_every50_s1.json"))
+    assert d["agent_kw"] == {"target_every": 50}

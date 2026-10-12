@@ -24,13 +24,14 @@ LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N
           "ec_frozen_cnn": "Episodic, frozen CNN embedding", "nec_cnn": "NEC (CNN)"}
 
 
-def label(agent, eps_floor, eps_decay=None, food_curriculum=None, food_relocate=False, opt="adam", lr=None):
+def label(agent, eps_floor, eps_decay=None, food_curriculum=None, food_relocate=False, opt="adam", lr=None, agent_kw=()):
     name = LABELS.get(agent, agent)
     name += "" if opt == "adam" else f", {opt}"
     name += "" if lr is None else f", lr {lr:g}"
     name += "" if eps_floor == EPS_FLOOR else f", eps floor {eps_floor:g}"
     name += "" if eps_decay is None else f", eps decay {eps_decay:,}"
     name += "" if food_curriculum is None else f", food curriculum {':'.join(str(x) for x in food_curriculum)}"
+    name += "".join(f", {k}={v}" for k, v in agent_kw)
     return name + (", food relocation" if food_relocate else "")
 
 
@@ -63,7 +64,7 @@ def main(DIR="results/d0", out_dir="figures"):
         if d["steps"] == STEPS:
             fc = d.get("food_curriculum")
             key = (d["agent"], d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"), tuple(fc) if fc else None,
-                   d.get("food_relocate", False), d.get("opt", "adam"), d.get("lr"))
+                   d.get("food_relocate", False), d.get("opt", "adam"), d.get("lr"), tuple(sorted((d.get("agent_kw") or {}).items())))
             data.setdefault(key, []).append(
                 (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))
         else:
@@ -74,7 +75,7 @@ def main(DIR="results/d0", out_dir="figures"):
     tables = {0: [], 1: []}
     order = list(LABELS)
     for key in sorted(data, key=lambda k: (order.index(k[0]) if k[0] in LABELS else len(order), k[0], k[1],
-                                         -1 if k[2] is None else k[2], k[3] or (), k[4], k[5], -1 if k[6] is None else k[6])):
+                                         -1 if k[2] is None else k[2], k[3] or (), k[4], k[5], -1 if k[6] is None else k[6], k[7])):
         lab = label(*key)
         for k, ax in enumerate(axes):
             C = np.stack([run[k] for run in data[key]])
