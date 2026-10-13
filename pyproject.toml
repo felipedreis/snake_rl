@@ -19,6 +19,10 @@ snake-plot = "snake_rl.plot:cli"
 snake-peek = "snake_rl.peek:cli"
 snake-train = "snake_rl.trainplot:cli"
 snake-watch = "snake_rl.watch:cli"
+snake-geometry = "snake_rl.geometry:cli"
+pacman-run = "snake_rl.run:pacman_cli"
+pacman-watch = "snake_rl.watch:pacman_cli"
+pacman-geometry = "snake_rl.geometry_pacman:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

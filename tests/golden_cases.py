@@ -34,9 +34,9 @@ CASES = {
                        "--food-curriculum", "2:1000:2500", "--food-relocate", "--eps-floor", "0.05",
                        "--eps-decay", "1000", "--eval-every", "1500", "--eval-episodes", "2"],
     # Ms. Pac-Man
-    "pac_dqn": ["snake-run", "dqn_naturecnn", "1", "1500", "--game", "pacman", "--reward-units", "atari", "--clip-reward",
+    "pac_dqn": ["pacman-run", "dqn_naturecnn", "1", "1500", "--reward-units", "atari", "--clip-reward",
                 "--agent-kw", "target_every=500", "--eval-every", "750", "--eval-episodes", "2"],
-    "pac_mfec": ["snake-run", "mfec", "1", "1500", "--game", "pacman"],
+    "pac_mfec": ["pacman-run", "mfec", "1", "1500"],
 }
 
 
@@ -44,7 +44,7 @@ def run_case(argv, root):
     """Run one case through its console entry point, return the parsed result JSON."""
     from snake_rl import run
     cmd, *args = argv
-    entry = {"snake-run": run.cli, "pacman-run": getattr(run, "pacman_cli", None)}[cmd]
+    entry = {"snake-run": run.cli, "pacman-run": run.pacman_cli}[cmd]
     old = sys.argv
     sys.argv = [cmd, *args, "--results", root, "--train-log-every", "500"]
     try:

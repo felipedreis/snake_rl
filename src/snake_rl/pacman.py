@@ -52,12 +52,13 @@ POINTS = dict(pellet=10, power=50, ghost=200)
 
 class MsPacman:
     DIRS = DIRS
+    SIZE = len(MAZE)  # the maze is SIZE x SIZE cells
 
     def __init__(self, seed=0, frame_skip=4, frame_stack=None, max_idle=None, reward_units="small"):
         if reward_units not in REWARDS:
             raise ValueError(f"unknown reward_units {reward_units!r}; choose from {sorted(REWARDS)}")
         self.reward_units, self.R = reward_units, REWARDS[reward_units]
-        self.n = len(MAZE)
+        self.n = self.SIZE
         if PIXELS % self.n:
             raise ValueError("the maze side must divide 84")
         self.cell = PIXELS // self.n

@@ -9,7 +9,17 @@ from snake_rl.env import Snake
 from snake_rl.nn import MLP
 from snake_rl.pacman import MsPacman
 from snake_rl.returns import NStep
-from snake_rl.run import epsilon, food_radius, main
+from snake_rl.boards import PacmanBoard, SnakeBoard
+from snake_rl.run import RunConfig, epsilon, food_radius
+from snake_rl.run import main as run_main
+
+
+def main(name, seed, steps, game="snake", **kw):
+    """run.main with flat keyword settings, split into the board and the RunConfig (as the CLIs do)."""
+    board_cls = PacmanBoard if game == "pacman" else SnakeBoard
+    names = set(board_cls.__dataclass_fields__)
+    board = board_cls(**{k: v for k, v in kw.items() if k in names})
+    run_main(name, seed, steps, board, RunConfig(**{k: v for k, v in kw.items() if k not in names}))
 
 
 def test_mlp_backward_matches_finite_differences():
@@ -520,10 +530,11 @@ def test_pixel_probe_stack_shows_a_snake_moving_straight_in():
 
 
 def test_results_dir_tags_for_the_pixel_frame_stack(tmp_path):
-    from snake_rl.run import results_dir
-    assert results_dir(25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5_abs"
-    assert results_dir(25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px_abs"
-    assert results_dir(25, "r", "rooms", 5.0, "pixels", 2) == "r/g25_d0_rooms_b5_px_fs2_abs"
+    b = dict(size=25, map="rooms", bonus=5.0)
+    assert SnakeBoard(**b).results_dir("r") == "r/g25_d0_rooms_b5_abs"
+    assert SnakeBoard(**b, render="pixels", frame_stack=4).results_dir("r") == "r/g25_d0_rooms_b5_px_abs"
+    assert SnakeBoard(**b, render="pixels", frame_stack=2).results_dir("r") == "r/g25_d0_rooms_b5_px_fs2_abs"
+    assert PacmanBoard(reward_units="atari").results_dir("r", clip_reward=True) == "r/pac_px_atari_clip"
     with pytest.raises(ValueError):
         Snake(size=7, frame_stack=2)  # only the pixel render stacks frames
 
@@ -550,8 +561,7 @@ def test_probe_set_has_four_actions_and_food_within_reach():
 def test_run_is_tagged_recorded_and_checkpointed(tmp_path):
     import pickle
     from snake_rl.env import check_absolute
-    from snake_rl.run import results_dir
-    assert results_dir(7, "r") == "r/d0_abs"
+    assert SnakeBoard().results_dir("r") == "r/d0_abs"
     main("dqn", 1, 300, size=7, root=str(tmp_path), probe_every=150, save_agent=True)
     d = json.load(open(tmp_path / "d0_abs" / "dqn_s1.json"))
     assert d["actions"] == "absolute" and len(d["probes"]) >= 1
@@ -763,8 +773,10 @@ def test_pacman_run_writes_results_and_every_pixel_agent_plays(tmp_path):
     main("dqn", 1, 300, root=str(tmp_path), game="pacman", frame_skip=4)
     d = json.load(open(tmp_path / "pac_px" / "dqn_s1.json"))
     assert d["game"] == "pacman" and d["size"] == 14 and d["frame_skip"] == 4 and d["episodes"]
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):  # the Snake board options do not exist for Pac-Man
         main("dqn", 1, 10, root=str(tmp_path), game="pacman", map="rooms")
+    with pytest.raises(ValueError):  # nor does the probe
+        main("dqn", 1, 10, root=str(tmp_path), game="pacman", probe_every=5)
     for name in sorted(AGENTS):
         if not name.endswith("naturecnn"):
             continue
@@ -808,7 +820,7 @@ def test_pacman_atari_reward_units_and_clipped_agent_reward(tmp_path):
     d = json.load(open(tmp_path / "pac_px_atari_clip" / "random_s1.json"))
     assert max(seen) <= 1.0 and min(seen) >= -1.0 and max(seen) == 1.0
     assert d["reward_units"] == "atari" and d["clip_reward"] and max(e[1] for e in d["episodes"]) >= 10
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         main("random", 1, 10, root=str(tmp_path), reward_units="atari")
 
 
