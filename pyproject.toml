@@ -25,3 +25,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: the golden bit-for-bit runs (about a minute and a half); deselect with -m 'not slow'"]
