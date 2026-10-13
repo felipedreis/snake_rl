@@ -681,9 +681,9 @@ def test_pacman_observation_is_the_atari_pixel_stack():
     k = np.round(o * 255)
     assert np.allclose(o * 255, k) and set(np.unique(k)) <= {0, 60, 110, 160, 200, 230, 255}
     assert np.array_equal(env.static_obs(), o)  # a fresh episode is one frame repeated
-    before = list(env._frames)
+    before = list(env.stack._frames)
     env.static_obs()
-    assert all(np.array_equal(a, b) for a, b in zip(before, env._frames))
+    assert all(np.array_equal(a, b) for a, b in zip(before, env.stack._frames))
 
 
 def test_pacman_walls_pellets_and_power():

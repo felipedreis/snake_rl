@@ -38,9 +38,10 @@ Options that are off (map="open", bonus=0, no food radius) draw no random number
 from collections import deque
 import numpy as np
 
+from snake_rl.frames import PIXELS, FrameStack
+
 MAPS = ("open", "pillars", "walls", "rooms")
 RENDERS = ("grid", "pixels")
-PIXELS = 84  # side of the pixel render, as in DQN's preprocessing
 # Gray level (0-255) of each thing in the pixel render; all distinct, and bonus 200-240 stays clear of the rest.
 GRAY = dict(wall=60, body=110, food=160, bonus=200, bonus_span=40, head=255)
 
@@ -105,7 +106,7 @@ class Snake:
         self.render_mode, self.frame_stack = render, fs
         self.pixels = render == "pixels"
         self.cell = PIXELS // size if self.pixels else 0  # pixels per board cell
-        self._frames = deque(maxlen=fs)  # the last `frame_stack` frames (pixel render)
+        self.stack = FrameStack(fs)  # the last `frame_stack` frames (pixel render)
         self.rng = np.random.default_rng(seed)
         self.max_idle = max_idle or 2 * size * size
         self.map, self.bonus_r, self.bonus_every = map, float(bonus), bonus_every
@@ -140,7 +141,7 @@ class Snake:
         self.score = 0
         self.foods = 0
         self.bonus_pos, self.bonus_left = None, 0
-        self._frames.clear()
+        self.stack.reset()
         self._place_food()
         return self._obs()
 
@@ -199,25 +200,16 @@ class Snake:
         img[off:off + side, off:off + side] = np.repeat(np.repeat(g, self.cell, 0), self.cell, 1)
         return img
 
-    @staticmethod
-    def _scale(frames):
-        return (np.stack(frames).astype(np.float32) / np.float32(255)).ravel()
-
     def static_obs(self):
         """Observation of the current state as if it had always been so (the frame stack is not touched)."""
         if not self.pixels:
             return self._grid_obs()
-        return self._scale([self._frame()] * self.frame_stack)
+        return self.stack.static(self._frame())
 
     def _obs(self):
         if not self.pixels:
             return self._grid_obs()
-        f = self._frame()
-        if not self._frames:
-            self._frames.extend([f] * self.frame_stack)
-        else:
-            self._frames.append(f)
-        return self._scale(list(self._frames))
+        return self.stack.push(self._frame())
 
     def _grid_obs(self):
         o = np.zeros((self.channels, self.n, self.n), np.float32)

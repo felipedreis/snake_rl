@@ -31,6 +31,7 @@ from collections import deque
 import numpy as np
 
 from snake_rl.env import Snake
+from snake_rl.frames import scale
 
 
 def _dist_from(env, src, blocked):
@@ -71,7 +72,7 @@ def _probe_obs(env, body, d):
         env.body = deque((r - k * dr, c - k * dc) for r, c in body)
         frames.append(env._frame())
     env.body = now
-    return env._scale(frames)
+    return scale(frames)
 
 
 def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0, render="grid",
