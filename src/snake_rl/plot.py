@@ -47,7 +47,7 @@ def curve(episodes, edges, rate=False):
     return np.array(out)
 
 
-def main(DIR="results/d0", out_dir="figures"):
+def main(DIR="results/d0_abs", out_dir="figures"):
     files = sorted(glob.glob(f"{DIR}/*.json"))
     if not files:
         raise SystemExit(f"no results in {DIR}")
@@ -108,7 +108,7 @@ def main(DIR="results/d0", out_dir="figures"):
 
 def cli():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("dir", nargs="?", default="results/d0")
+    ap.add_argument("dir", nargs="?", default="results/d0_abs")
     ap.add_argument("--out", default="figures", help="where to write the png")
     a = ap.parse_args()
     main(a.dir, a.out)
