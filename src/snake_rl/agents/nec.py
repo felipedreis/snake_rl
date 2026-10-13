@@ -11,7 +11,7 @@ the most similar remembered situations. A good outcome is usable the moment it i
   - Q(s, a) = weighted average of the values of the p keys in DND[a] closest to h(s); closer keys
     weigh more.
 
-Encoder: CNN (as in the paper, but small 3x3 stride-1 convs for the tiny grid) or an MLP, obs -> h.
+Encoder: DQN's CNN on the pixel render (as in the paper) or an MLP on the grid, obs -> h.
 One Differentiable Neural Dictionary (DND) per action.
 Q(s,a) = sum_i w_i v_i over the p nearest keys, w_i = k_i / sum_j k_j,
 k_i = 1 / (||h - h_i||^2 + delta)                                  (eqs. 1, 2, 5)
@@ -27,7 +27,7 @@ giving an MFEC-like ablation that keeps everything else identical.
 """
 import numpy as np
 from snake_rl.agents.memory import KeyValueMemory
-from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
+from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, NATURE_CONVS, NATURE_FC
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -87,9 +87,8 @@ class NECAgent:
       replay_cap       rows in the replay buffer used for the slow (gradient) learning.
       batch            replay rows per training step.
       train_every      one training step every this many env steps.
-      encoder          "mlp", "cnn" (small stride-1 CNN, *_cnn), "dqncnn" (DQN-shaped CNN, *_dqncnn) or "naturecnn"
-                       (DQN's exact network, for the 84x84 pixel render, *_naturecnn); obs_shape is the (C, n, n)
-                       grid the CNNs need.
+      encoder          "mlp" or "naturecnn" (DQN's exact network, for the 84x84 pixel render, *_naturecnn);
+                       obs_shape is the (C, 84, 84) frame stack the CNN needs.
       obs_u8           keep replay observations as uint8 gray levels (k/255, what the pixel render produces) to save
                        memory; exact for that render.
     """
@@ -101,11 +100,7 @@ class NECAgent:
         # rng: the only source of randomness. nA: number of actions. learn: learn_embedding.
         self.rng, self.nA, self.learn = rng, n_actions, learn_embedding
         # enc: the encoder network, observation -> embedding h of length key_dim.
-        if encoder == "cnn":
-            self.enc = ConvNet(obs_shape, [16, 32], [hidden, key_dim], rng)
-        elif encoder == "dqncnn":  # DQN's conv shape and FC 512 (the paper's encoder family), then the key
-            self.enc = ConvNet(obs_shape, DQN_CONVS, [DQN_FC, key_dim], rng)
-        elif encoder == "naturecnn":  # DQN's own network on 84x84 frames, then the key
+        if encoder == "naturecnn":  # DQN's own network on 84x84 frames, then the key
             self.enc = ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, key_dim], rng)
         else:
             self.enc = MLP([obs_dim, hidden, key_dim], rng)

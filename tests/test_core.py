@@ -106,7 +106,7 @@ def test_episode_log_splits_bonus_points_and_truncation(tmp_path):
 def test_convnet_backward_matches_finite_differences():
     from snake_rl.nn import ConvNet
     rng = np.random.default_rng(0)
-    net = ConvNet((2, 4, 4), convs=[3, 2], fcs=[5, 3], rng=rng)
+    net = ConvNet((2, 4, 4), convs=[(3, 3, 1, 1), (2, 3, 1, 1)], fcs=[5, 3], rng=rng)
     x, y = rng.normal(size=(3, 2 * 16)), rng.normal(size=(3, 3))
     loss = lambda: 0.5 * ((net.forward(x) - y) ** 2).sum()
     loss()
@@ -283,7 +283,7 @@ def test_probe_set_labels():
     assert s["steer"] == pytest.approx(s["steer_chance"])
 
 
-@pytest.mark.parametrize("name", ["dqn", "nec", "dqn_cnn", "nec_cnn"])
+@pytest.mark.parametrize("name", ["dqn", "nec"])
 def test_train_telemetry_is_logged_and_streamed(name, tmp_path):
     kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "off"), train_log_every=0, **kw)
@@ -301,7 +301,7 @@ def test_train_telemetry_is_logged_and_streamed(name, tmp_path):
 def test_strided_convnet_backward_matches_finite_differences():
     from snake_rl.nn import ConvNet
     rng = np.random.default_rng(0)
-    net = ConvNet((2, 7, 7), convs=[(3, 3, 1), (2, 3, 2), (2, 3, 2)], fcs=[5, 3], rng=rng)
+    net = ConvNet((2, 7, 7), convs=[(3, 3, 1, 1), (2, 3, 2, 1), (2, 3, 2, 1)], fcs=[5, 3], rng=rng)
     assert net.out_hw == 2  # 7 -> 7 -> 4 -> 2
     x, y = rng.normal(size=(3, 2 * 49)), rng.normal(size=(3, 3))
     loss = lambda: 0.5 * ((net.forward(x) - y) ** 2).sum()
@@ -316,14 +316,7 @@ def test_strided_convnet_backward_matches_finite_differences():
             assert g[i] == pytest.approx((up - down) / 2e-6, rel=1e-4, abs=1e-6)
 
 
-def test_dqn_shaped_cnn_on_the_25_grid():
-    from snake_rl.nn import ConvNet, DQN_CONVS, DQN_FC
-    net = ConvNet((5, 25, 25), DQN_CONVS, [DQN_FC, 32], np.random.default_rng(0))
-    assert [ho for _, _, _, ho in net.layers] == [25, 13, 7] and net.W[3].shape == (7 * 7 * 64, 512)
-    assert net.forward(np.zeros((2, 5 * 625))).shape == (2, 32)
-
-
-@pytest.mark.parametrize("name", ["dqn", "nec_dqncnn", "mfec", "random"])
+@pytest.mark.parametrize("name", ["dqn", "nec", "mfec", "random"])
 def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
     import pickle
     from snake_rl.watch import frames

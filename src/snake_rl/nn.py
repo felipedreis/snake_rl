@@ -72,8 +72,6 @@ class MLP:
             p[...] = q
 
 
-# DQN's conv shape scaled to the grid (see ConvNet): 25x25 -> 25 -> 13 -> 7, then FC 512.
-DQN_CONVS, DQN_FC = [(32, 3, 1), (64, 3, 2), (64, 3, 2)], 512
 # DQN's own network (Mnih et al., 2015) on 84x84 frames, valid convolutions (padding 0): 84 -> 20 -> 9 -> 7, then FC 512.
 NATURE_CONVS, NATURE_FC = [(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], 512
 
@@ -81,24 +79,18 @@ NATURE_CONVS, NATURE_FC = [(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], 512
 class ConvNet:
     """Small CNN with manual backprop, same interface as MLP (flat batch in, params()/backward()).
 
-    obs_shape = (C, n, n). `convs` lists the conv layers, each either an int (output channels; k x k kernel, stride 1)
-    or a tuple (channels, kernel, stride[, padding]). Padding defaults to k//2 (zeros) and every conv has a ReLU, so
-    stride 1 keeps the map size ("same") and stride 2 roughly halves it; padding 0 gives "valid" convolutions.
-    The flattened feature map feeds the dense layers `fcs` (ReLU between, linear last).
-    [16, 32] is the original small net: stride 1 throughout, the map stays n x n. [(32,3,1), (64,3,2), (64,3,2)] with
-    fcs [512, ...] is DQN's shape (Mnih et al., 2015: 32 8x8/4, 64 4x4/2, 64 3x3/1, FC 512) scaled to the grid:
-    25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari. NATURE_CONVS is DQN's exact stack,
-    for the 84x84 pixel render: [(32,8,4,0), (64,4,2,0), (64,3,1,0)], 84 -> 20 -> 9 -> 7.
+    obs_shape = (C, n, n). `convs` lists the conv layers as (channels, kernel, stride, padding); every conv has a ReLU,
+    and padding 0 gives "valid" convolutions. The flattened feature map feeds the dense layers `fcs` (ReLU between,
+    linear last). NATURE_CONVS is DQN's exact stack (Mnih et al., 2015) for the 84x84 pixel render:
+    [(32,8,4,0), (64,4,2,0), (64,3,1,0)], 84 -> 20 -> 9 -> 7, then FC 512.
     Convolutions are im2col matmuls, channels-last internally.
     """
 
-    def __init__(self, obs_shape, convs, fcs, rng, k=3):
+    def __init__(self, obs_shape, convs, fcs, rng):
         C, n, _ = obs_shape
-        self.shape, self.k = (n, n, C), k
+        self.shape = (n, n, C)
         self.W, self.b, self.layers, self.pads, cin, h = [], [], [], [], C, n
-        for spec in convs:
-            cout, kk, st, *pd = (spec, k, 1) if isinstance(spec, int) else spec
-            pad = pd[0] if pd else kk // 2
+        for cout, kk, st, pad in convs:
             ho = (h + 2 * pad - kk) // st + 1
             if ho < 1:
                 raise ValueError(f"conv {kk}x{kk}/{st} does not fit a {h}x{h} map")
@@ -188,10 +180,6 @@ class ConvNet:
     def __getstate__(self):  # the im2col buffers of the last forward() are large and only needed by backward()
         return {k: v for k, v in self.__dict__.items() if k not in ("cache", "cols", "out")}
 
-    def __setstate__(self, d):
-        self.__dict__.update(d)
-        if "pads" not in d:  # checkpoints from before explicit padding: every conv was "same"
-            self.pads = [k // 2 for k, *_ in self.layers]
 
 
 class Adam:

@@ -34,14 +34,6 @@ AGENTS = {
     "mfec": _agent(MFECAgent),
     "ec_frozen": _agent(NECAgent, learn_embedding=False, N=N),
     "nec": _agent(NECAgent, learn_embedding=True, N=N),
-    # CNN encoders (the paper's architecture family): same agents, conv trunk instead of MLP
-    "dqn_cnn": _agent(DQNAgent, grid=True, N=1, encoder="cnn"),
-    "dqn_nstep_cnn": _agent(DQNAgent, grid=True, N=N, encoder="cnn"),
-    "ec_frozen_cnn": _agent(NECAgent, grid=True, learn_embedding=False, N=N, encoder="cnn"),
-    "nec_cnn": _agent(NECAgent, grid=True, learn_embedding=True, N=N, encoder="cnn"),
-    # DQN-shaped CNN (32 3x3/1, 64 3x3/2, 64 3x3/2, FC 512): the paper's encoder family scaled to the grid
-    "dqn_dqncnn": _agent(DQNAgent, grid=True, N=1, encoder="dqncnn"),
-    "nec_dqncnn": _agent(NECAgent, grid=True, learn_embedding=True, N=N, encoder="dqncnn"),
     # DQN's exact network (32 8x8/4, 64 4x4/2, 64 3x3/1, FC 512) for the 84x84 pixel render (--render pixels)
     "dqn_naturecnn": _agent(DQNAgent, grid=True, u8=True, N=1, encoder="naturecnn"),
     "dqn_nstep_naturecnn": _agent(DQNAgent, grid=True, u8=True, N=N, encoder="naturecnn"),

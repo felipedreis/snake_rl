@@ -12,7 +12,7 @@ Target: G + disc * max_a Q_target(boot_obs, a), Huber loss, periodic target sync
 N=1 gives standard DQN; N>1 isolates the contribution of N-step returns.
 """
 import numpy as np
-from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, DQN_CONVS, DQN_FC, NATURE_CONVS, NATURE_FC
+from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, NATURE_CONVS, NATURE_FC
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -28,8 +28,8 @@ class DQNAgent:
       batch        transitions per training step (minibatch size).
       train_every  do one training step every this many env steps.
       target_every copy the online network into the target network every this many env steps.
-      encoder      "mlp", "cnn" (small stride-1 CNN, *_cnn), "dqncnn" (DQN-shaped CNN, *_dqncnn) or "naturecnn" (DQN's
-                   exact network, for the 84x84 pixel render, *_naturecnn); obs_shape is the (C, n, n) grid the CNNs need.
+      encoder      "mlp" or "naturecnn" (DQN's exact network, for the 84x84 pixel render, *_naturecnn); obs_shape is the
+                   (C, 84, 84) frame stack the CNN needs.
       obs_u8       keep replay observations as uint8 gray levels (k/255, what the pixel render produces) to save
                    memory; exact for that render, and off (float64 rows) otherwise.
     """
@@ -40,13 +40,9 @@ class DQNAgent:
         # rng: the only source of randomness (exploration and minibatch sampling), for reproducibility.
         # nA: number of actions.
         self.rng, self.nA = rng, n_actions
-        # encoder="cnn" uses a small ConvNet over the (C, n, n) grid (obs_shape); otherwise an MLP over
-        # the flat observation.
-        if encoder == "cnn":
-            net = lambda: ConvNet(obs_shape, [16, 32], [hidden, n_actions], rng)
-        elif encoder == "dqncnn":  # DQN's conv shape scaled to the grid, FC 512 (see nn.ConvNet)
-            net = lambda: ConvNet(obs_shape, DQN_CONVS, [DQN_FC, n_actions], rng)
-        elif encoder == "naturecnn":  # DQN's own network on 84x84 frames
+        # encoder="naturecnn" uses DQN's ConvNet over the frame stack (obs_shape); otherwise an MLP over the flat
+        # observation.
+        if encoder == "naturecnn":  # DQN's own network on 84x84 frames
             net = lambda: ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, n_actions], rng)
         else:
             net = lambda: MLP([obs_dim, hidden, hidden, n_actions], rng)
