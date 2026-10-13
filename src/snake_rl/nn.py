@@ -263,6 +263,19 @@ class RMSProp(Optimizer):
         return self.lr * g / (np.sqrt(v) + self.eps)
 
 
+ENCODERS = ("mlp", "naturecnn")
+
+
+def make_net(kind, obs_dim, obs_shape, hidden, out_dim, rng):
+    """The network of an agent: "mlp" (flat observation -> the `hidden` ReLU layers -> out_dim) or "naturecnn" (DQN's
+    exact network on the (C, 84, 84) frame stack obs_shape -> FC 512 -> out_dim; `hidden` is not used)."""
+    if kind == "naturecnn":
+        return ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, out_dim], rng)
+    if kind == "mlp":
+        return MLP([obs_dim, *hidden, out_dim], rng)
+    raise ValueError(f"unknown encoder {kind!r}; choose from {ENCODERS}")
+
+
 OPTIMIZERS = {"adam": Adam, "rmsprop": RMSProp}
 
 

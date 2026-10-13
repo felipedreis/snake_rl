@@ -27,7 +27,7 @@ giving an MFEC-like ablation that keeps everything else identical.
 """
 import numpy as np
 from snake_rl.agents.memory import KeyValueMemory
-from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, NATURE_CONVS, NATURE_FC
+from snake_rl.nn import Adam, make_net, make_optimizer
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -99,11 +99,8 @@ class NECAgent:
                  encoder="mlp", obs_shape=None, obs_u8=False):
         # rng: the only source of randomness. nA: number of actions. learn: learn_embedding.
         self.rng, self.nA, self.learn = rng, n_actions, learn_embedding
-        # enc: the encoder network, observation -> embedding h of length key_dim.
-        if encoder == "naturecnn":  # DQN's own network on 84x84 frames, then the key
-            self.enc = ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, key_dim], rng)
-        else:
-            self.enc = MLP([obs_dim, hidden, key_dim], rng)
+        # enc: the encoder network, observation -> embedding h of length key_dim (MLP: one hidden layer).
+        self.enc = make_net(encoder, obs_dim, obs_shape, [hidden], key_dim, rng)
         # opt: updates the encoder's weights (the DND is updated directly in _train, not by Adam).
         self.opt = Adam(self.enc.params(), lr)
         # dnds[a]: the memory for action a.

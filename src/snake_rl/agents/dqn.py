@@ -12,7 +12,7 @@ Target: G + disc * max_a Q_target(boot_obs, a), Huber loss, periodic target sync
 N=1 gives standard DQN; N>1 isolates the contribution of N-step returns.
 """
 import numpy as np
-from snake_rl.nn import MLP, ConvNet, Adam, make_optimizer, NATURE_CONVS, NATURE_FC
+from snake_rl.nn import Adam, make_net, make_optimizer
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
 
@@ -40,12 +40,9 @@ class DQNAgent:
         # rng: the only source of randomness (exploration and minibatch sampling), for reproducibility.
         # nA: number of actions.
         self.rng, self.nA = rng, n_actions
-        # encoder="naturecnn" uses DQN's ConvNet over the frame stack (obs_shape); otherwise an MLP over the flat
+        # encoder="naturecnn": DQN's ConvNet over the frame stack (obs_shape); "mlp": two hidden layers over the flat
         # observation.
-        if encoder == "naturecnn":  # DQN's own network on 84x84 frames
-            net = lambda: ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, n_actions], rng)
-        else:
-            net = lambda: MLP([obs_dim, hidden, hidden, n_actions], rng)
+        net = lambda: make_net(encoder, obs_dim, obs_shape, [hidden, hidden], n_actions, rng)
         # q: the "online" Q-network, observation -> one Q-value per action. This is what we train.
         # qt: the "target" network, a lagged copy of q used only to compute targets. If targets came
         # from q itself, every update would also move the target it is chasing, which tends to
