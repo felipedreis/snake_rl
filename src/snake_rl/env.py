@@ -1,7 +1,7 @@
 """Snake environment with grid observations, optional obstacle maps and Nokia-style bonus food.
 
 Observation: binary/float channels over an n x n grid, flattened (see `obs_shape`):
-  head, body, food, [obstacle if map != "open"], [bonus if bonus > 0], D distractor channels.
+  head, body, food, [obstacle if map != "open"], [bonus if bonus > 0].
 The bonus channel holds the remaining lifetime fraction (1 -> 0) at the bonus food's cell, so the
 agent can see how long the detour is still worth it.
 Actions (relative): 0 = straight, 1 = turn right, 2 = turn left.
@@ -17,9 +17,6 @@ Bonus food (Nokia style): after every `bonus_every` regular foods a bonus pellet
 random free cell for `bonus_life` steps (default 2n), then vanishes. It is worth `bonus` points
 and grows the snake like a regular food, so greedy chasing makes the snake long and risky.
 
-Distractors: `distractors` extra channels of i.i.d. Bernoulli(noise_p) pixels, resampled
-every step. They carry no information about value, but dominate raw-space distances,
-so nearest neighbours in observation space become largely random.
 Food distance (a curriculum aid, off by default): with `food_radius` = r, regular food is drawn only from
 free cells within r walkable steps of the head (shortest path around walls and the body), falling back to
 any free cell if none is that close. run.py can grow r during training (`--food-curriculum`). With
@@ -90,24 +87,21 @@ def _connected(free):
 class Snake:
     DIRS = [(-1, 0), (0, 1), (1, 0), (0, -1)]  # up, right, down, left
 
-    def __init__(self, size=7, max_idle=None, seed=0, distractors=0, noise_p=0.5,
+    def __init__(self, size=7, max_idle=None, seed=0,
                  map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None, relocate_food=False,
                  render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
         if actions not in ACTION_MODES:
             raise ValueError(f"unknown actions {actions!r}; choose from {ACTION_MODES}")
         if render not in RENDERS:
             raise ValueError(f"unknown render {render!r}; choose from {RENDERS}")
-        if render == "pixels" and (distractors or size > PIXELS):
-            raise ValueError("render='pixels' needs distractors=0 and size <= 84")
+        if render == "pixels" and size > PIXELS:
+            raise ValueError("render='pixels' needs size <= 84")
         fs = frame_stack or (4 if render == "pixels" else 1)  # pixels: DQN's 4; grid: 1 = a single observation
-        if fs > 1 and distractors:
-            raise ValueError("a frame stack needs distractors=0")
         self.n = size
         self.render_mode, self.frame_stack, self.wall_scale = render, fs, float(wall_scale)
         self.pixels = render == "pixels"
         self.cell = PIXELS // size if self.pixels else 0  # pixels per board cell
         self._frames = deque(maxlen=fs)  # the last `frame_stack` frames (only used when stacking)
-        self.D, self.noise_p = distractors, noise_p
         self.rng = np.random.default_rng(seed)
         self.max_idle = max_idle or 2 * size * size
         self.map, self.bonus_r, self.bonus_every = map, float(bonus), bonus_every
@@ -123,7 +117,7 @@ class Snake:
             raise ValueError(f"map {map!r} does not fit a {size}x{size} board")
         self.actions = actions
         self.n_actions = 3 if actions == "relative" else 4  # absolute: up, right, down, left
-        self.channels = 3 + bool(self.wall_set) + (self.bonus_r > 0) + distractors
+        self.channels = 3 + bool(self.wall_set) + (self.bonus_r > 0)
         self.obs_shape = (self.channels, size, size)
         if self.pixels:
             self.obs_shape = (fs, PIXELS, PIXELS)
@@ -233,7 +227,7 @@ class Snake:
         return self._stack(list(self._frames))
 
     def _grid_obs(self):
-        o = np.zeros((self.channels - self.D, self.n, self.n), np.float32)
+        o = np.zeros((self.channels, self.n, self.n), np.float32)
         hr, hc = self.body[0]
         o[0, hr, hc] = 1.0
         for (r, c) in list(self.body)[1:]:
@@ -247,9 +241,6 @@ class Snake:
         if self.bonus_r > 0:
             if self.bonus_pos is not None:
                 o[k, self.bonus_pos[0], self.bonus_pos[1]] = self.bonus_left / self.bonus_life
-        if self.D:
-            noise = (self.rng.random((self.D, self.n, self.n)) < self.noise_p).astype(np.float32)
-            o = np.concatenate([o, noise])
         return o.ravel()
 
     def render(self):

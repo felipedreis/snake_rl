@@ -1,6 +1,6 @@
 """Run one (agent, seed) and save per-episode scores.
 
-usage: snake-run <agent> <seed> <steps> [--distractors D] [--size n] [--eps-floor F] [--eps-decay N]
+usage: snake-run <agent> <seed> <steps> [--size n] [--eps-floor F] [--eps-decay N]
                  [--map M] [--bonus R] [--render grid|pixels] [--frame-stack K] [--wall-scale X] [--actions relative|absolute] [--probe-every K [--probe-far]] [--game snake|pacman [--frame-skip K] [--reward-units small|atari]] [--clip-reward] [--agent-kw KEY=VALUE ...] [--opt adam|rmsprop] [--lr F] [--food-curriculum R[:H]:N [--food-relocate]] [--eval-every K [--eval-episodes M] [--eval-eps E]]
                  [--probe-every K] [--train-log-every K] [--save-agent] [--save-every K]
        (or: python -m snake_rl.run ...)
@@ -87,10 +87,11 @@ def save(agent, path, t, settings):
         pickle.dump(dict(agent=agent, t=t, **settings), f)
 
 
-def results_dir(D, size, root="results", map="open", bonus=0.0, render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
-    """results/d{D} (7x7) or g{size}_d{D}; a non-default map / bonus food / pixel render / frame stack / wall scale adds
+def results_dir(size, root="results", map="open", bonus=0.0, render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
+    """results/d0 (7x7) or g{size}_d0 (the d0 is what is left of the removed distractor channels; kept so new runs
+    land next to the old ones); a non-default map / bonus food / pixel render / frame stack / wall scale adds
     _{map} / _b{bonus} / _px / _fs{K} / _ws{X} / _abs."""
-    base = f"{root}/d{D}" if size == 7 else f"{root}/g{size}_d{D}"
+    base = f"{root}/d0" if size == 7 else f"{root}/g{size}_d0"
     default_fs = 4 if render == "pixels" else 1
     return (base + ("" if map == "open" else f"_{map}") + (f"_b{bonus:g}" if bonus else "")
             + ("_px" if render == "pixels" else "") + ("" if frame_stack in (None, default_fs) else f"_fs{frame_stack}")
@@ -105,25 +106,25 @@ def results_dir_pacman(root="results", frame_skip=4, frame_stack=None, reward_un
             + ("" if reward_units == "small" else f"_{reward_units}") + ("_clip" if clip_reward else ""))
 
 
-def make_env(game, seed, *, size=7, D=0, map="open", bonus=0.0, food_radius=None, relocate_food=False, render="grid",
+def make_env(game, seed, *, size=7, map="open", bonus=0.0, food_radius=None, relocate_food=False, render="grid",
              frame_stack=None, wall_scale=1.0, actions="relative", frame_skip=4, reward_units="small"):
     """The training/evaluation env of a run: Snake (all the options) or MsPacman (pixels, 14x14, 4 absolute actions)."""
     if game == "pacman":
         return MsPacman(seed=seed, frame_skip=frame_skip, frame_stack=frame_stack, reward_units=reward_units)
-    return Snake(size=size, seed=seed, distractors=D, map=map, bonus=bonus, food_radius=food_radius,
+    return Snake(size=size, seed=seed, map=map, bonus=bonus, food_radius=food_radius,
                  relocate_food=relocate_food, render=render, frame_stack=frame_stack, wall_scale=wall_scale,
                  actions=actions)
 
 
-def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
+def main(name, seed, steps, *, size=7, root="results", eps_floor=EPS_FLOOR, map="open", bonus=0.0,
          eps_decay=None, eval_every=0, eval_episodes=5, eval_eps=0.05, food_curriculum=None, food_relocate=False,
          probe_every=0, train_log_every=1000, save_agent=False, save_every=0, render="grid", opt="adam", lr=None, frame_stack=None, wall_scale=1.0, actions="relative", probe_far=False, game="snake", frame_skip=4, reward_units="small", clip_reward=False, agent_kw=None):
     if game not in GAMES:
         raise ValueError(f"unknown game {game!r}; choose from {GAMES}")
     if game == "pacman":  # fixed 14x14 maze, pixels, absolute actions: none of the Snake board options apply
-        if (D or size != 7 or map != "open" or bonus or food_curriculum or food_relocate or probe_every
+        if (size != 7 or map != "open" or bonus or food_curriculum or food_relocate or probe_every
                 or render != "grid" or wall_scale != 1.0 or actions != "relative"):
-            raise ValueError("--game pacman takes no --distractors/--size/--map/--bonus/--render/--wall-scale/--actions/"
+            raise ValueError("--game pacman takes no --size/--map/--bonus/--render/--wall-scale/--actions/"
                              "--food-*/--probe-*; use --frame-skip and --frame-stack")
         size, render = MsPacman().n, "pixels"
     if game != "pacman" and reward_units != "small":
@@ -131,7 +132,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
     if food_relocate and food_curriculum is None:
         raise ValueError("food_relocate only acts during a food curriculum; set food_curriculum too")
     rng = np.random.default_rng(seed)
-    env = make_env(game, seed + 1000, size=size, D=D, map=map, bonus=bonus,
+    env = make_env(game, seed + 1000, size=size, map=map, bonus=bonus,
                    food_radius=food_radius(0, food_curriculum, size), relocate_food=food_relocate, render=render,
                    frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, frame_skip=frame_skip, reward_units=reward_units)
     agent = make_agent(name, env, rng, **(agent_kw or {}))
@@ -141,18 +142,18 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
         agent.set_optimizer(opt, lr)
     # Evaluation always places food anywhere: it measures the real task, whatever the training curriculum.
     if eval_every:  # own env and RNG streams, so evaluation never shifts training's random numbers
-        eval_env = make_env(game, seed + 2000, size=size, D=D, map=map, bonus=bonus, render=render,
+        eval_env = make_env(game, seed + 2000, size=size, map=map, bonus=bonus, render=render,
                             frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, frame_skip=frame_skip, reward_units=reward_units)
         eval_rng = np.random.default_rng(seed + 3000)
     # Representation probe (probe.py): a fixed hand-built state set, no rng shared with training.
-    P = make_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions) if probe_every and not D else None
+    P = make_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions) if probe_every else None
     F = (make_far_probe_set(size, map, bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
          if probe_far and P is not None else None)  # larger set: steering by distance and tie fractions
     probes = [(0, probe(agent, P, F))] if P is not None else []
     out_dir = (results_dir_pacman(root, frame_skip, frame_stack, reward_units, clip_reward) if game == "pacman"
-               else results_dir(D, size, root, map, bonus, render, frame_stack, wall_scale, actions))
+               else results_dir(size, root, map, bonus, render, frame_stack, wall_scale, actions))
     stem = f"{out_dir}/{run_name(name, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr, agent_kw)}_s{seed}"
-    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, distractors=D, eps_floor=eps_floor,
+    settings = dict(name=name, seed=seed, size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions, eps_floor=eps_floor,
                     eps_decay=eps_decay, food_curriculum=food_curriculum, food_relocate=food_relocate, opt=opt, lr=lr, game=game, frame_skip=frame_skip, reward_units=reward_units, clip_reward=clip_reward, agent_kw=agent_kw or {})
     # Training telemetry (telemetry.py): window means every train_log_every steps. Also streamed, one JSON line per
     # snapshot, to <stem>.train.jsonl as the run goes (kept afterwards), so `snake-train` can plot a run in progress.
@@ -188,7 +189,7 @@ def main(name, seed, steps, *, D=0, size=7, root="results", eps_floor=EPS_FLOOR,
                 train.append((t, s))
                 live.write(json.dumps({"t": t, **s}) + "\n")
                 live.flush()
-    out = {"agent": name, "seed": seed, "steps": steps, "distractors": D, "size": size,
+    out = {"agent": name, "seed": seed, "steps": steps, "size": size,
            "eps_floor": eps_floor, "eps_decay": eps_decay, "food_curriculum": food_curriculum, "food_relocate": food_relocate, "map": map, "bonus": bonus, "render": render, "frame_stack": frame_stack, "wall_scale": wall_scale, "actions": actions, "probe_far": probe_far, "game": game, "frame_skip": frame_skip, "reward_units": reward_units, "clip_reward": clip_reward, "agent_kw": agent_kw or {}, "opt": opt, "lr": lr, "episodes": log, "diagnostics": diag,
            "eval": {"every": eval_every, "episodes": eval_episodes, "eps": eval_eps} if eval_every else None,
            "evaluations": evals, "probes": probes, "train": train,
@@ -208,7 +209,6 @@ def cli():
     ap.add_argument("agent", help=f"one of {sorted(AGENTS)}")
     ap.add_argument("seed", type=int)
     ap.add_argument("steps", type=int)
-    ap.add_argument("--distractors", type=int, default=0, help="extra noise channels")
     ap.add_argument("--size", type=int, default=7, help="grid size")
     ap.add_argument("--eps-floor", type=float, default=EPS_FLOOR, help="final epsilon after the decay")
     ap.add_argument("--eps-decay", type=int, default=None,
@@ -261,7 +261,7 @@ def cli():
     ap.add_argument("--results", default="results", help="results root directory")
     a = ap.parse_args()
     fc = tuple(int(x) for x in a.food_curriculum.split(":")) if a.food_curriculum else None
-    main(a.agent, a.seed, a.steps, D=a.distractors, size=a.size, root=a.results, eps_floor=a.eps_floor, map=a.map,
+    main(a.agent, a.seed, a.steps, size=a.size, root=a.results, eps_floor=a.eps_floor, map=a.map,
          bonus=a.bonus, eps_decay=a.eps_decay, eval_every=a.eval_every, eval_episodes=a.eval_episodes,
          eval_eps=a.eval_eps, food_curriculum=fc, food_relocate=a.food_relocate, probe_every=a.probe_every,
          train_log_every=a.train_log_every, save_agent=a.save_agent, save_every=a.save_every, render=a.render,

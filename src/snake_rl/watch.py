@@ -51,14 +51,14 @@ def load(spec, size, map, bonus, seed, render="grid", actions="relative", game="
         if ck.get("game") == "pacman":
             board = dict(game="pacman", frame_skip=ck.get("frame_skip", 4), frame_stack=ck.get("frame_stack"))
             return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
-        board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0),
+        board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"],
                      render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0),
                      actions=ck.get("actions", "relative"))
         return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")
     board = (dict(game="pacman", frame_skip=frame_skip) if game == "pacman"
-             else dict(size=size, map=map, bonus=bonus, distractors=0, render=render, actions=actions))
+             else dict(size=size, map=map, bonus=bonus, render=render, actions=actions))
     agent = make_agent(spec, new_env(board), np.random.default_rng(seed))
     return agent, board, f"{spec} (untrained)"
 

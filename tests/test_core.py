@@ -40,9 +40,9 @@ def test_nstep_targets():
 
 
 def test_env_obs_shape_and_death():
-    env = Snake(size=5, distractors=2)
+    env = Snake(size=5)
     obs = env.reset()
-    assert obs.shape == (env.obs_dim,) == ((3 + 2) * 25,)
+    assert obs.shape == (env.obs_dim,) == (3 * 25,)
     for _ in range(10):  # going straight from the centre must hit the wall
         _, r, term, _ = env.step(0)
         if term:
@@ -86,11 +86,11 @@ def test_agent_runs(name, kw):
 
 
 def test_run_writes_results(tmp_path):
-    main("dqn", 3, 500, D=1, size=6, root=str(tmp_path))
-    d = json.load(open(tmp_path / "g6_d1" / "dqn_s3.json"))
+    main("dqn", 3, 500, size=6, root=str(tmp_path))
+    d = json.load(open(tmp_path / "g6_d0" / "dqn_s3.json"))
     assert d["agent"] == "dqn" and d["steps"] == 500 and d["eps_floor"] == 0.02 and d["episodes"]
-    main("dqn", 3, 500, D=1, size=6, root=str(tmp_path), eps_floor=0.1)
-    d = json.load(open(tmp_path / "g6_d1" / "dqn_eps0.1_s3.json"))
+    main("dqn", 3, 500, size=6, root=str(tmp_path), eps_floor=0.1)
+    d = json.load(open(tmp_path / "g6_d0" / "dqn_eps0.1_s3.json"))
     assert d["agent"] == "dqn" and d["eps_floor"] == 0.1
 
 
@@ -121,8 +121,8 @@ def test_convnet_backward_matches_finite_differences():
 
 
 def test_open_env_unchanged_by_new_options():
-    a, b = Snake(size=7, seed=3, distractors=1), Snake(size=7, seed=3, distractors=1, map="open", bonus=0.0)
-    assert a.obs_shape == (4, 7, 7)
+    a, b = Snake(size=7, seed=3), Snake(size=7, seed=3, map="open", bonus=0.0)
+    assert a.obs_shape == (3, 7, 7)
     oa, ob = a.reset(), b.reset()
     arng = np.random.default_rng(1)
     for _ in range(200):
@@ -438,7 +438,7 @@ def test_pixel_render_is_the_same_game_in_gray():
 def test_pixel_render_defaults_and_limits():
     assert Snake(size=7).obs_shape == (3, 7, 7) and not Snake(size=7).pixels
     with pytest.raises(ValueError):
-        Snake(size=7, render="pixels", distractors=1)
+        Snake(size=90, render="pixels")
     with pytest.raises(ValueError):
         Snake(size=7, render="sepia")
 
@@ -548,8 +548,6 @@ def test_grid_frame_stack_and_wall_scale():
             prev = st._obs().reshape(3, plain.channels, 9, 9)[2]  # reset pushes a fresh stack
             break
     assert np.array_equal(Snake(size=9, seed=1, map="rooms").reset(), Snake(size=9, seed=1, map="rooms", frame_stack=1).reset())
-    with pytest.raises(ValueError):
-        Snake(size=7, frame_stack=2, distractors=1)
 
 
 def test_pixel_wall_scale_changes_only_the_wall_level():
@@ -564,10 +562,10 @@ def test_pixel_wall_scale_changes_only_the_wall_level():
 
 def test_results_dir_tags_for_stack_and_wall_scale(tmp_path):
     from snake_rl.run import results_dir
-    assert results_dir(0, 25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5"
-    assert results_dir(0, 25, "r", "rooms", 5.0, frame_stack=4) == "r/g25_d0_rooms_b5_fs4"
-    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px"
-    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", wall_scale=0.0) == "r/g25_d0_rooms_b5_px_ws0"
+    assert results_dir(25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5"
+    assert results_dir(25, "r", "rooms", 5.0, frame_stack=4) == "r/g25_d0_rooms_b5_fs4"
+    assert results_dir(25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px"
+    assert results_dir(25, "r", "rooms", 5.0, "pixels", wall_scale=0.0) == "r/g25_d0_rooms_b5_px_ws0"
     main("dqn", 1, 300, size=7, root=str(tmp_path), map="rooms", frame_stack=2, wall_scale=0.5)
     d = json.load(open(tmp_path / "d0_rooms_fs2_ws0.5" / "dqn_s1.json"))
     assert d["frame_stack"] == 2 and d["wall_scale"] == 0.5
@@ -609,8 +607,8 @@ def test_absolute_probe_set_adds_only_the_reversal_direction():
 def test_absolute_run_is_tagged_recorded_and_checkpointed(tmp_path):
     import pickle
     from snake_rl.run import results_dir
-    assert results_dir(0, 25, "r", "rooms", 5.0, "pixels", actions="absolute") == "r/g25_d0_rooms_b5_px_abs"
-    assert results_dir(0, 7, "r") == "r/d0"
+    assert results_dir(25, "r", "rooms", 5.0, "pixels", actions="absolute") == "r/g25_d0_rooms_b5_px_abs"
+    assert results_dir(7, "r") == "r/d0"
     main("dqn", 1, 300, size=7, root=str(tmp_path), actions="absolute", probe_every=150, save_agent=True)
     d = json.load(open(tmp_path / "d0_abs" / "dqn_s1.json"))
     assert d["actions"] == "absolute" and len(d["probes"]) >= 1

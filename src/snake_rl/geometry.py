@@ -29,7 +29,7 @@ from snake_rl.probe import _as_float, _ego, _sqdist, make_probe_set, probe
 def load(path):
     with open(path, "rb") as f:
         ck = pickle.load(f)
-    board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0), render=ck.get("render", "grid"),
+    board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], render=ck.get("render", "grid"),
                  frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0), actions=ck.get("actions", "relative"))
     return ck, board
 
