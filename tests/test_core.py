@@ -79,10 +79,16 @@ def test_mfec_backward_max_update_and_lookup():
     assert ag.bufs[1].lookup(s0, 0) == 0.0                  # empty buffer
 
 
+# Every registered agent on the grid, and every agent with a network also on pixels (where it uses the Nature CNN).
+PX = "@px"
+VARIANTS = sorted(AGENTS) + [n + PX for n in ("dqn", "dqn_nstep", "ec_frozen", "nec")]
+
+
 @pytest.mark.parametrize("kw", [{}, {"map": "pillars", "bonus": 3.0}], ids=["open", "pillars+bonus"])
-@pytest.mark.parametrize("name", sorted(AGENTS))
-def test_agent_runs(name, kw):
-    if name.endswith("naturecnn"):
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_agent_runs(variant, kw):
+    name = variant.removesuffix(PX)
+    if variant.endswith(PX):
         kw = {**kw, "render": "pixels"}
     env, rng = Snake(size=7 if kw else 5, seed=0, **kw), np.random.default_rng(0)
     agent = make_agent(name, env, rng)
@@ -198,14 +204,16 @@ def test_eps_decay_is_recorded_and_tagged(tmp_path):
     assert d["eps_floor"] == 0.005 and d["eps_decay"] == 0
 
 
-def _board(name, **kw):
-    """Run kwargs for `main` and the results-dir tag (every name ends in _abs); the *_naturecnn agents need the pixel render."""
-    return ({**kw, "render": "pixels"}, "_px_abs") if name.endswith("naturecnn") else (kw, "_abs")
+def _board(variant, **kw):
+    """(agent name, run kwargs for `main`, results-dir tag: every name ends in _abs) for a VARIANTS entry."""
+    if variant.endswith(PX):
+        return variant.removesuffix(PX), {**kw, "render": "pixels"}, "_px_abs"
+    return variant, kw, "_abs"
 
 
-@pytest.mark.parametrize("name", sorted(AGENTS))
-def test_evaluation_does_not_change_training(name, tmp_path):
-    kw, tag = _board(name, size=6, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_evaluation_does_not_change_training(variant, tmp_path):
+    name, kw, tag = _board(variant, size=6, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
     main(name, 4, 1500, root=str(tmp_path / "eval"), eval_every=500, eval_episodes=2, **kw)
     stem = f"g6_d0_rooms_b5{tag}/{name}_eps0.05_epsd600_s4.json"
@@ -269,9 +277,9 @@ def test_relocation_needs_a_curriculum(tmp_path):
     assert d["food_curriculum"] == [2, 100, 200] and d["food_relocate"] is True
 
 
-@pytest.mark.parametrize("name", sorted(AGENTS))
-def test_probe_does_not_change_training(name, tmp_path):
-    kw, tag = _board(name, size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_probe_does_not_change_training(variant, tmp_path):
+    name, kw, tag = _board(variant, size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
     main(name, 4, 1500, root=str(tmp_path / "probe"), probe_every=500, **kw)
     stem = f"d0_rooms_b5{tag}/{name}_eps0.05_epsd600_s4.json"
@@ -616,7 +624,7 @@ def test_far_probe_set_stores_pixels_as_uint8():
 
 @pytest.mark.parametrize("name", ["dqn", "nec"])
 def test_far_probe_does_not_change_training(name, tmp_path):
-    kw, tag = _board(name, size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
+    name, kw, tag = _board(name, size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1200, root=str(tmp_path / "plain"), probe_every=600, **kw)
     main(name, 4, 1200, root=str(tmp_path / "far"), probe_every=600, probe_far=True, **kw)
     stem = f"d0_rooms_b5{tag}/{name}_eps0.05_epsd600_s4.json"
@@ -777,9 +785,7 @@ def test_pacman_run_writes_results_and_every_pixel_agent_plays(tmp_path):
         main("dqn", 1, 10, root=str(tmp_path), game="pacman", map="rooms")
     with pytest.raises(ValueError):  # nor does the probe
         main("dqn", 1, 10, root=str(tmp_path), game="pacman", probe_every=5)
-    for name in sorted(AGENTS):
-        if not name.endswith("naturecnn"):
-            continue
+    for name in ("dqn", "dqn_nstep", "ec_frozen", "nec", "mfec"):
         env = MsPacman(seed=0)
         agent, obs = make_agent(name, env, np.random.default_rng(0)), env.reset()
         for t in range(1, 1101):
@@ -833,3 +839,18 @@ def test_agent_kw_overrides_constructor_settings(tmp_path):
     main("dqn", 1, 300, size=5, root=str(tmp_path), agent_kw={"target_every": 50})
     d = json.load(open(tmp_path / "g5_d0_abs" / "dqn_target_every50_s1.json"))
     assert d["agent_kw"] == {"target_every": 50}
+
+
+def test_network_follows_the_observation_and_legacy_names_still_work(tmp_path):
+    from snake_rl.agents import canonical_stem
+    from snake_rl.nn import MLP, ConvNet
+    grid, px = Snake(size=7, seed=0), Snake(size=7, seed=0, render="pixels")
+    assert isinstance(make_agent("nec", grid, np.random.default_rng(0)).enc, MLP)
+    nec = make_agent("nec", px, np.random.default_rng(0))
+    assert isinstance(nec.enc, ConvNet) and nec.replay.u8
+    old = make_agent("nec_naturecnn", px, np.random.default_rng(0))  # the name the run scripts used
+    assert type(old) is type(nec) and all(np.array_equal(a, b) for a, b in zip(old.enc.params(), nec.enc.params()))
+    assert canonical_stem("dqn_nstep_naturecnn_rmsprop_lr0.0001") == "dqn_nstep_rmsprop_lr0.0001"
+    assert canonical_stem("nec_rmsprop") == "nec_rmsprop"
+    main("ec_frozen_naturecnn", 1, 50, root=str(tmp_path), render="pixels")  # saved under the current name
+    assert json.load(open(tmp_path / "d0_px_abs" / "ec_frozen_s1.json"))["agent"] == "ec_frozen"

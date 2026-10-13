@@ -12,6 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from snake_rl.agents import canonical
 from snake_rl.run import EPS_FLOOR
 
 # Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
@@ -60,7 +61,7 @@ def main(DIR="results/d0", out_dir="figures"):
         d = json.load(open(f))
         if d["steps"] == STEPS:
             fc = d.get("food_curriculum")
-            key = (d["agent"], d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"), tuple(fc) if fc else None,
+            key = (canonical(d["agent"]), d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"), tuple(fc) if fc else None,
                    d.get("food_relocate", False), d.get("opt", "adam"), d.get("lr"), tuple(sorted((d.get("agent_kw") or {}).items())))
             data.setdefault(key, []).append(
                 (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))

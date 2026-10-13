@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
-from snake_rl.agents import AGENTS, make_agent
+from snake_rl.agents import AGENTS, canonical, make_agent
 from snake_rl.boards import PacmanBoard, SnakeBoard, food_radius  # noqa: F401 (food_radius: re-exported)
 from snake_rl.env import MAPS, RENDERS
 from snake_rl.probe import make_far_probe_set, make_probe_set, probe
@@ -108,6 +108,7 @@ def main(name, seed, steps, board=SnakeBoard(), cfg=RunConfig()):
     """Train agent `name` with seed `seed` for `steps` env steps on `board`; write <stem>.json (and checkpoints)."""
     if cfg.probe_every and not isinstance(board, SnakeBoard):
         raise ValueError("the representation probe (--probe-every) exists for Snake only")
+    name = canonical(name)  # legacy *_naturecnn names run (and are saved) under the current name
     rng = np.random.default_rng(seed)
     env = board.make_train_env(seed + 1000)
     agent = make_agent(name, env, rng, **cfg.agent_kw)
@@ -189,7 +190,7 @@ def _parser(game):
         b.add_argument("--bonus", type=float, default=0.0, help="reward of the timed bonus food (0 = off)")
         b.add_argument("--render", default="grid", choices=RENDERS,
                        help="observation: 'grid' channels (default) or 'pixels', an 84x84 grayscale image with a "
-                            "4-frame stack as DQN/NEC see Atari (the agents then use DQN's network)")
+                            "4-frame stack as DQN/NEC see Atari (the agents then use DQN's Nature CNN)")
         b.add_argument("--frame-stack", type=int, default=None,
                        help="--render pixels: stack the last K frames (default 4, as DQN)")
         b.add_argument("--food-curriculum", default=None, metavar="R[:H]:N",
