@@ -1,6 +1,11 @@
 # Experiment protocol: the final ladder, 1M steps on Snake 10x10 and Ms. Pac-Man
 
-**Status: pre-registered, frozen on 2026-10-13.** Written by Claude on the experimenter's direction and approved by them.
+**Status: pre-registered, frozen on 2026-10-13 (revision 2).** Written by Claude on the experimenter's direction and approved by them.
+
+- **Revision 1** (frozen first, commit `edccec3`): the ladder on both games, hypotheses H1-H4.
+- **Revision 2** (same day, before any run was submitted): the experimenter added a Snake arm with the food curriculum and a second confirmatory
+  family C1-C5 (sections 1-2). Nothing in revision 1 changed: the 8 tests of H1-H4 and their job lines are as frozen, and the curriculum has its own
+  Holm family. The frozen files are re-hashed in `FROZEN.sha256`.
 
 - **Frozen files:** `PROTOCOL.md`, `analyze.py`, `make_specs.py` and the four specs `ansible/experiments/final_ladder_{snake,pacman}{,_memory}.yml`.
   At freezing they are hashed into `FROZEN.sha256` together with the commit that contains them, and that commit is made before the first run is
@@ -59,6 +64,24 @@ comparison rather than on a chain of exploratory runs.
 - **Verdicts:** a hypothesis is **supported** if its Holm-adjusted p < 0.05, and **not supported** otherwise. Not supported is not softened.
   Where the interval shows the opposite direction, the report says so.
 
+**The food-curriculum family (revision 2, Snake only).** The experimenter's hypothesis is that the food curriculum helps every agent learn.
+- It is untested on 10x10. On 25x25 it fixed the sparse-reward problem (every agent ate thousands of fruit early) but no agent learned to steer
+  (`nec_ladder_g25_food_relocation`, `encoder_food_probe_g25`).
+- For each arm A ∈ {DQN, N-step DQN, MFEC, frozen EC, NEC}, with the same settings and seeds 21-30 plus the curriculum:
+
+| | Claim | Outcome | Prediction |
+|---|---|---|---|
+| **C1-C5** | A trained with the curriculum > A trained without it | O1 | not supported for any arm |
+
+- **Reasons for the prediction.** It is a prediction, not a finding, and the test can overturn it.
+  - The curriculum raises the reward early, but it cannot change what the final real-game policy needs: representing where the food is.
+  - Plain DQN may already be near its ceiling at 1M steps.
+- **The test.** One-sided exact permutation tests (10 runs against 10), Holm-adjusted **over these 5**, α = 0.05, a family separate from H1-H4. The
+  difference of means has a 95% bootstrap interval and Hedges' g.
+- **What can be claimed.** "The curriculum helps all agents" is supported only if all five are supported. Evaluation always uses the real game, so
+  the curriculum cannot inflate the score it is judged on. The early outcome O2 for the same comparisons is exploratory.
+- **Random** needs no curriculum arm: its evaluation score does not depend on training.
+
 **Exploratory** (reported, not tested):
 - the ladder, each rung against the one below (DQN → N-step DQN → frozen EC → NEC), and every arm against random;
 - learning curves;
@@ -95,7 +118,15 @@ Anything computed later from saved checkpoints (value calibration, embedding geo
 | Frozen-embedding EC | `ec_frozen` | DND capacity 5e5 per action | rung 2 |
 | NEC | `nec` | RMSProp 1e-4, DND capacity 5e5 per action | `pacman_c2c3` D1 |
 
-That is 6 arms × 10 seeds × 2 games = 120 runs (the 20 random runs cost minutes). The networks follow the observation: DQN's Nature CNN on 84x84
+That is 6 arms × 10 seeds × 2 games = 120 runs (the 20 random runs cost minutes).
+
+**Snake with the food curriculum (revision 2):** the five arms other than random, each run again with
+`--food-curriculum 2:50000:150000 --food-relocate`, on seeds 21-30 (+50 runs, 170 in all).
+- **Schedule.** Regular food is placed within 2 walkable steps of the head until step 50k, and the radius then grows linearly to 2n = 20 by step
+  150k. From 150k on, food goes anywhere, as in the real game, for 85% of the budget.
+- **Relocation.** Food not eaten within 2r + 5 steps is placed again within r of the head, while the curriculum runs.
+- **Evaluation and probes.** They use the real game.
+- **Output.** The result files carry the tag `_fc2-50000-150000_reloc` in the same directory as the plain runs. The networks follow the observation: DQN's Nature CNN on 84x84
 frames for every arm with a network, on both games.
 
 ### Decisions (taken by the experimenter on 2026-10-13)
@@ -152,15 +183,18 @@ frames for every arm with a network, on both games.
       NEC lead and good evidence only against a large one.
   - **Snake:** s.d. was 0.1–0.2 fruit per episode at 250k. Differences of ≥ 0.25 between episodic arms are detectable; DQN differences are an order
     of magnitude larger.
+  - **Curriculum family (5 tests, Holm level α/5 = 0.01):** power is about 0.8 at g = 1.6 (between 0.96 at α = 0.05 and 0.77 at α/8 in the
+    table above). A curriculum effect smaller than that is not reliably detectable at 10 seeds, and "not supported" is then weak evidence.
 
 ## 5. Assumptions and risks
 
-- **Time.** On the cluster, DQN runs at about 45 ms per step at the start (check runs), so about 13–15 h per 1M steps.
+- **Time (revision 1).** On the cluster, DQN runs at about 45 ms per step at the start (check runs), so about 13–15 h per 1M steps.
   - NEC's brute-force kNN grows with its memory: 10 → 58 ms per step locally as the DND goes from empty to 250k rows per action, about 5× that
     on the cluster. So about 30–50 h per run.
   - Limits: 3 days for the fast arms (`normal` partition) and 7 days for NEC and frozen EC (`extended` partition, limit 21 days).
-- **Concurrency.** Per-user limits are 96 CPUs on `normal` and 48 on `extended`. The specs ask for 80 and 40, so everything runs at once, and the
-  wall clock is about 2–3 days.
+- **Concurrency.** Per-user limits are 96 CPUs on `normal` and 48 on `extended`. The specs ask for 96 (40 Snake, 40 Pac-Man, 16 curriculum) and
+  48 (20 + 20 + 8). The first two groups run at once; the 30 fast curriculum runs take two waves (about 1.5 days), and the 20 curriculum memory
+  runs take three waves of about 2 days. **The whole experiment therefore takes about 6 days of wall clock**, against 2-3 for revision 1.
 - **Reproducibility.** Runs are bit-for-bit reproducible on the same machine and numeric library build.
   - Across machines they are not always (section 8: Pac-Man NEC diverged within ~500 steps between this Mac and the cluster, from float noise in
     the gradients).
@@ -175,7 +209,7 @@ frames for every arm with a network, on both games.
 2. Run the checks of section 8.
 3. Have the experimenter review the protocol.
 4. Hash the frozen files and commit.
-5. Submit the four specs: `final_ladder_snake`, `final_ladder_snake_memory`, `final_ladder_pacman`, `final_ladder_pacman_memory`.
+5. Submit the six specs (section 7).
 6. Collect (repeatable; the VPN drops when idle).
 7. Run `analyze.py` and write `REPORT.md`, with a Deviations section.
 8. Upload the results and checkpoints to Hugging Face.
@@ -186,6 +220,8 @@ frames for every arm with a network, on both games.
 - **Specs:** `ansible/experiments/final_ladder_{snake,pacman}.yml` (the fast arms, partition `normal`) and
   `ansible/experiments/final_ladder_{snake,pacman}_memory.yml` (NEC and frozen EC, partition `extended`).
 - **Job lines:** generated by `make_specs.py`.
+- **Revision 2 specs:** `final_ladder_snake_curriculum.yml` (DQN, N-step DQN, MFEC; `normal`, 16 at once) and
+  `final_ladder_snake_curriculum_memory.yml` (frozen EC and NEC; `extended`, 8 at once).
 - **Results:** everything lands in `results/exp_final_ladder/`, in `g10_d0_px_abs/` (Snake), `pac_px_atari/` and `pac_px_atari_clip/` (Ms.
   Pac-Man; the DQN arms learn from clipped rewards).
 
@@ -198,3 +234,4 @@ frames for every arm with a network, on both games.
 | C3. The same 12 runs locally against the cluster | 11 identical (episodes, evaluations, diagnostics; probes and telemetry within 6e-15). Ms. Pac-Man NEC diverged from episode 67 on: numpy 2.5.4 here against 2.4.6 with OpenBLAS on the cluster, and in Atari units NEC's gradients are ~10⁴ and clipped, so float noise flips an action early. Not a logic difference; see section 5. |
 | C4. `analyze.py` on synthetic results (both games, 6 arms, 10 seeds, evaluations every 25k) and on the check runs | tables, the 8 tests and the figure come out as intended. The exact permutation p reaches its floor of 1/184,756 for a complete separation. Holm checked by hand. |
 | C5. Timing on the cluster, 3,000-step check runs | DQN 84–140 s, NEC 119–212 s (with probes every 1,500 steps and evaluation every 1,000) |
+| C6. The curriculum arm (revision 2) | `analyze.py` produces the C1-C5 table and `eval_curves_curriculum.png` on synthetic results; the exact new command line (`nec`, 3,000 steps, evaluation and probes on) runs locally, finishes, and its result file records `food_curriculum [2, 50000, 150000]`, `food_relocate true` and the tag `_fc2-50000-150000_reloc` |

@@ -6,8 +6,9 @@ Reads <root>/**/*_s<seed>.json (both games), writes results.md, per_run.csv and 
 Outcomes, per run (the unit of analysis), from the evaluation episodes (20 at epsilon 0.05 every 25k steps):
   O1 (final)  mean evaluation score over the evaluations at 950k, 975k and 1M steps.
   O2 (early)  mean evaluation score over the evaluations at 200k, 225k and 250k steps (the NEC paper's first point, 1M frames).
-Confirmatory: H1-H4 for each game (8 tests), one-sided exact permutation tests on the difference of means, Holm-adjusted over the 8,
-alpha 0.05, exactly as in PROTOCOL.md section 1. Everything else is labelled exploratory.
+Confirmatory: H1-H4 for each game (8 tests) and, for Snake only (revision 2), C1-C5, curriculum against plain training for each arm on O1.
+All are one-sided exact permutation tests on the difference of means; Holm-adjusted within each family (8 and 5), alpha 0.05, exactly as in
+PROTOCOL.md section 1. Everything else is labelled exploratory. Snake runs trained with the food curriculum are the arms "<agent>+fc".
 """
 import csv
 import glob
@@ -30,10 +31,14 @@ LABEL = {"random": "Random", "dqn": "DQN", "dqn_nstep": "N-step DQN", "mfec": "M
 # Categorical slots of the project's reference palette, fixed order (validated); random is the neutral gray.
 COLOR = {"dqn": "#2a78d6", "dqn_nstep": "#eb6834", "mfec": "#1baf7a", "ec_frozen": "#eda100", "nec": "#e87ba4",
          "random": "#8a8984"}
+FC_ARMS = tuple(a + "+fc" for a in ("dqn", "dqn_nstep", "mfec", "ec_frozen", "nec"))
+LABEL.update({a: LABEL[a.removesuffix("+fc")] + " + curriculum" for a in FC_ARMS})
+COLOR.update({a: COLOR[a.removesuffix("+fc")] for a in FC_ARMS})
 O1_STEPS, O2_STEPS = (950_000, 975_000, 1_000_000), (200_000, 225_000, 250_000)
 # H id, outcome, arm A, arm B: "A > B" (one-sided)
 HYPOTHESES = [("H1", "o2", "nec", "dqn"), ("H2", "o1", "nec", "dqn"), ("H3", "o1", "nec", "ec_frozen"),
               ("H4", "o1", "nec", "mfec")]
+CURRICULUM_ARMS = ("dqn", "dqn_nstep", "mfec", "ec_frozen", "nec")  # C1-C5: "<arm>+fc" > "<arm>" on O1 (Snake)
 ALPHA, B, BOOT_SEED = 0.05, 10_000, 12345
 
 
@@ -45,7 +50,8 @@ def eval_mean(ev, steps):
 
 def run_metrics(d):
     ev = d.get("evaluations") or []
-    m = dict(game=d.get("game", "snake"), agent=LEGACY.get(d["agent"], d["agent"]), seed=d["seed"], steps=d["steps"],
+    m = dict(game=d.get("game", "snake"), agent=LEGACY.get(d["agent"], d["agent"]) + ("+fc" if d.get("food_curriculum") else ""),
+             seed=d["seed"], steps=d["steps"],
              wall_h=d["wallclock_s"] / 3600, o1=eval_mean(ev, O1_STEPS), o2=eval_mean(ev, O2_STEPS))
     m["curve"] = [(t, float(np.mean([e[0] for e in eps]))) for t, eps in ev]
     m["eval_len"] = float(np.mean([e[3] for t, eps in ev if t in O1_STEPS for e in eps])) if ev else np.nan
@@ -141,11 +147,43 @@ def figure(runs, path):
     fig.savefig(path, dpi=150)
 
 
+def figure_curriculum(runs, path):
+    """Snake: each arm trained plainly (solid) against with the food curriculum (dashed), evaluation score by step."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    arms = ("dqn", "dqn_nstep", "mfec", "ec_frozen", "nec")
+    fig, axes = plt.subplots(1, len(arms), figsize=(15, 3.6), sharex=True)
+    for ax, arm in zip(axes, arms):
+        for key, ls in ((arm, "-"), (arm + "+fc", "--")):
+            rs = runs.get(("snake", key))
+            if not rs:
+                continue
+            ts = sorted({t for m in rs for t, _ in m["curve"]})
+            ys = np.array([[dict(m["curve"]).get(t, np.nan) for t in ts] for m in rs])
+            mu = np.nanmean(ys, 0)
+            se = np.nanstd(ys, 0, ddof=1) / np.sqrt(np.sum(~np.isnan(ys), 0)) if len(rs) > 1 else 0
+            x = np.array(ts) / 1e3
+            ax.plot(x, mu, color=COLOR[arm], lw=2, ls=ls, label="curriculum" if key.endswith("+fc") else "plain")
+            ax.fill_between(x, mu - se, mu + se, color=COLOR[arm], alpha=0.15, lw=0)
+        ax.axvspan(50, 150, color="#8a8984", alpha=0.08, lw=0)  # the curriculum grows over 50k-150k
+        ax.set_title(LABEL[arm], fontsize=10, loc="left")
+        ax.set_xlabel("agent steps (thousands)")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.grid(axis="y", color="#e6e5e0", lw=0.8)
+        ax.legend(frameon=False, fontsize=8, loc="lower right")
+    axes[0].set_ylabel("evaluation score, fruit per episode")
+    fig.text(0.01, 0.01, "Snake 10x10, mean over 10 seeds, band = ±1 s.e.; evaluation always uses the real game. Shaded: the curriculum's growth (50k-150k).",
+             fontsize=8, color="#5f5e5a")
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.savefig(path, dpi=150)
+
+
 def main():
     runs = {}
     for f in sorted(glob.glob(f"{ROOT}/**/*_s[0-9]*.json", recursive=True)):
         m = run_metrics(json.load(open(f)))
-        if m["agent"] not in ARMS:
+        if m["agent"].removesuffix("+fc") not in ARMS:
             print("skipping", f)
             continue
         runs.setdefault((m["game"], m["agent"]), []).append(m)
@@ -160,7 +198,7 @@ def main():
     for game in GAMES:
         L += [f"### {'Snake 10x10, pixels' if game == 'snake' else 'Ms. Pac-Man, Atari units'} ({UNIT[game]})", "",
               "| Arm | n | O2 early (200k-250k) | O1 final (950k-1M) | eval episode length (O1 window) | wall h |", "|---|---|---|---|---|---|"]
-        for arm in ARMS:
+        for arm in ARMS + (FC_ARMS if game == "snake" else ()):
             rs = runs.get((game, arm), [])
             if not rs:
                 continue
@@ -197,7 +235,41 @@ def main():
     if len(rows) != 8 or not all(ok):
         L += ["", "**Incomplete:** not all 8 confirmatory tests could be computed; the Holm family above is smaller than 8."]
 
+    L += ["", "## Confirmatory tests, Snake food curriculum (revision 2): curriculum > plain on O1, one-sided exact permutation, Holm over 5, alpha 0.05", "",
+          "| Hypothesis | Arm | difference [95% bootstrap CI] | Hedges' g | p | p (Holm) | Verdict |", "|---|---|---|---|---|---|---|"]
+    crows = []
+    for i, arm in enumerate(CURRICULUM_ARMS, 1):
+        x, y = values(runs, "snake", arm + "+fc", "o1"), values(runs, "snake", arm, "o1")
+        crows.append((f"C{i}", arm, None if len(x) < 2 or len(y) < 2 else (x.mean() - y.mean(), boot_ci(x, y, rng), hedges_g(x, y), perm_p_greater(x, y))))
+    cok = np.array([r[2] is not None for r in crows])
+    cadj = np.full(len(crows), np.nan)
+    if cok.any():
+        cadj[cok] = holm(np.array([r[2][3] for r in crows if r[2] is not None]))
+    for (cid, arm, res), pa in zip(crows, cadj):
+        if res is None:
+            L.append(f"| {cid} | {LABEL[arm]} | - | - | - | - | missing runs |")
+            continue
+        d, (lo, hi), g, p = res
+        L.append(f"| {cid} | {LABEL[arm]} | {d:+.2f} [{lo:+.2f}, {hi:+.2f}] | {g:.2f} | {p:.2g} | {pa:.2g} | "
+                 f"{'**supported**' if pa < ALPHA else 'not supported'} |")
+    if not cok.all():
+        L += ["", "**Incomplete:** not all 5 curriculum tests could be computed."]
+
     L += ["", "## Exploratory (not pre-registered tests)", "",
+          "### Snake curriculum against plain on the early outcome O2 and on O1 (difference of means, 95% bootstrap CI)", "",
+          "| Arm | O2 | O1 |", "|---|---|---|"]
+    for arm in CURRICULUM_ARMS:
+        cells = []
+        for key in ("o2", "o1"):
+            x, y = values(runs, "snake", arm + "+fc", key), values(runs, "snake", arm, key)
+            if len(x) > 1 and len(y) > 1:
+                lo, hi = boot_ci(x, y, rng)
+                cells.append(f"{x.mean() - y.mean():+.2f} [{lo:+.2f}, {hi:+.2f}]")
+            else:
+                cells.append("-")
+        L.append(f"| {LABEL[arm]} | {cells[0]} | {cells[1]} |")
+    L += [""]
+    L += [
           "### The ladder: each rung against the one below, and every arm against random (O1 and O2; difference, 95% bootstrap CI)", ""]
     pairs = [("dqn", "random"), ("dqn_nstep", "dqn"), ("ec_frozen", "dqn_nstep"), ("nec", "ec_frozen"), ("mfec", "random"),
              ("ec_frozen", "random"), ("nec", "random")]
@@ -237,6 +309,8 @@ def main():
             for m in runs[k]:
                 w.writerow([m[c] for c in cols])
     figure(runs, os.path.join(OUT, "eval_curves.png"))
+    if any(k[1].endswith("+fc") for k in runs):
+        figure_curriculum(runs, os.path.join(OUT, "eval_curves_curriculum.png"))
     print("\n".join(L))
 
 
