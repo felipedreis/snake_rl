@@ -24,9 +24,6 @@ Two learning timescales:
 
 learn_embedding=False freezes the random encoder and disables the SGD path,
 giving an MFEC-like ablation that keeps everything else identical.
-
-refresh_every>0 (not in the paper) keeps the raw observation behind every key and
-periodically re-embeds all keys with the current encoder, removing key drift.
 """
 import numpy as np
 from snake_rl.agents.memory import KeyValueMemory
@@ -42,25 +39,21 @@ class DND(KeyValueMemory):
     Storage, knn and LRU insertion live in KeyValueMemory; this adds the kernel lookup and NEC's write rule.
     """
 
-    def lookup(self, H, t=None, return_dist=False):
+    def lookup(self, H, t=None):
         """Q estimate for each query key in H: kernel-weighted average of the neighbours' values.
 
         t: if given, mark the neighbours as used at step t (for eviction).
-        return_dist: also return the mean squared distance to the neighbours (how densely this
-        region is covered by memory; used by nec_bonus). Infinite if the memory is empty.
         """
         if self.n == 0:
-            z = np.zeros(H.shape[0])  # empty memory: Q = 0
-            return (z, np.full(H.shape[0], np.inf)) if return_dist else z
+            return np.zeros(H.shape[0])  # empty memory: Q = 0
         idx, d = self.knn(H)
         kern = 1.0 / (d + self.delta)          # closer neighbours -> larger kernel
         w = kern / kern.sum(1, keepdims=True)  # normalise to weights that sum to 1
         if t is not None:
             self.last_used[idx] = t  # LRU = least recently used as a neighbour
-        q = (w * self.vals[idx]).sum(1)
-        return (q, d.mean(1)) if return_dist else q
+        return (w * self.vals[idx]).sum(1)
 
-    def write(self, h, v, t, alpha, obs=None, match_eps=1e-6):
+    def write(self, h, v, t, alpha, match_eps=1e-6):
         """Remember that the situation with key h was worth v.
 
         If (practically) the same key is already stored, move its value a fraction alpha towards v,
@@ -75,9 +68,7 @@ class DND(KeyValueMemory):
                 self.last_used[j] = t
                 self.stats["exact_updates"] += 1
                 return
-        i = self._insert(h, v, t)
-        if self.obs is not None:
-            self.obs[i] = obs
+        self._insert(h, v, t)
 
 
 class NECAgent:
@@ -96,21 +87,17 @@ class NECAgent:
       replay_cap       rows in the replay buffer used for the slow (gradient) learning.
       batch            replay rows per training step.
       train_every      one training step every this many env steps.
-      refresh_every    nec_refresh: recompute all stored keys every this many steps (0 = never).
-      bonus_beta       nec_bonus: weight of the exploration bonus when acting (0 = off).
       encoder          "mlp", "cnn" (small stride-1 CNN, *_cnn), "dqncnn" (DQN-shaped CNN, *_dqncnn) or "naturecnn"
                        (DQN's exact network, for the 84x84 pixel render, *_naturecnn); obs_shape is the (C, n, n)
                        grid the CNNs need.
       obs_u8           keep replay observations as uint8 gray levels (k/255, what the pixel render produces) to save
-                       memory; exact for that render. Not combinable with refresh_every.
+                       memory; exact for that render.
     """
 
     def __init__(self, obs_dim, n_actions, rng, learn_embedding=True, key_dim=32, hidden=64,
                  p=50, delta=1e-3, dnd_cap=20000, N=50, gamma=0.99, alpha=0.1,
                  lr=5e-4, mem_lr=1e-2, replay_cap=20000, batch=32, train_every=4,
-                 refresh_every=0, bonus_beta=0.0, encoder="mlp", obs_shape=None, obs_u8=False):
-        if obs_u8 and refresh_every:
-            raise ValueError("refresh_every keeps float observations per key; it cannot be combined with obs_u8")
+                 encoder="mlp", obs_shape=None, obs_u8=False):
         # rng: the only source of randomness. nA: number of actions. learn: learn_embedding.
         self.rng, self.nA, self.learn = rng, n_actions, learn_embedding
         # enc: the encoder network, observation -> embedding h of length key_dim.
@@ -124,10 +111,8 @@ class NECAgent:
             self.enc = MLP([obs_dim, hidden, key_dim], rng)
         # opt: updates the encoder's weights (the DND is updated directly in _train, not by Adam).
         self.opt = Adam(self.enc.params(), lr)
-        self.refresh_every, self.bonus_beta = refresh_every, bonus_beta
         # dnds[a]: the memory for action a.
-        self.dnds = [DND(dnd_cap, key_dim, p, delta, obs_dim if refresh_every else None)
-                     for _ in range(n_actions)]
+        self.dnds = [DND(dnd_cap, key_dim, p, delta) for _ in range(n_actions)]
         # nstep: holds the last N transitions until their N-step return is known (see returns.py).
         self.nstep = NStep(N, gamma)
         self.alpha, self.mem_lr, self.batch, self.train_every = alpha, mem_lr, batch, train_every
@@ -157,18 +142,7 @@ class NECAgent:
         # Epsilon-greedy, as in DQN.
         if self.rng.random() < eps:
             return int(self.rng.integers(self.nA))
-        if self.bonus_beta:
-            # density bonus (not in the paper): favour actions whose memory is sparse near h.
-            # Used for acting only; value targets use the plain Q.
-            qd = [d.lookup(h[None], t, return_dist=True) for d in self.dnds]
-            q = np.array([x[0][0] for x in qd])   # Q per action
-            dm = np.array([x[1][0] for x in qd])  # mean distance to neighbours per action
-            if np.isinf(dm).any():  # an empty DND: try it
-                return int(self.rng.choice(np.flatnonzero(np.isinf(dm))))
-            # Bonus >= 0, zero for the action with the densest memory near h, larger the sparser it is.
-            q = q + self.bonus_beta * np.log((dm + 1e-8) / (dm.min() + 1e-8))
-        else:
-            q = self._q(h, t)
+        q = self._q(h, t)
         return int(self.rng.choice(np.flatnonzero(q == q.max())))  # best action, ties broken randomly
 
     def observe(self, obs, a, r, next_obs, term, trunc, t):
@@ -180,20 +154,13 @@ class NECAgent:
             # Q target: real rewards + discounted best Q from the memory at the bootstrap state.
             target = G + (disc * self._q(self._embed(boot)).max() if disc > 0 else 0.0)  # eq. 3
             # Fast path: write it into the memory of the action taken; usable on the very next lookup.
-            self.dnds[act].write(h, target, t, self.alpha, obs=o)
+            self.dnds[act].write(h, target, t, self.alpha)
             # And keep it in replay for the slow path.
             self.R_obs[self.r_i], self.R_act[self.r_i], self.R_ret[self.r_i] = (np.rint(o * 255) if self.u8 else o), act, target
             self.r_i = (self.r_i + 1) % self.r_cap
             self.r_n = min(self.r_n + 1, self.r_cap)
         if self.learn and t % self.train_every == 0 and self.r_n >= self.batch:
             self._train()
-        # Key drift: training changes the encoder, so keys written long ago were computed by an older
-        # encoder and no longer match how the same situation is embedded now. Refresh recomputes them.
-        if self.refresh_every and t % self.refresh_every == 0:
-            for d in self.dnds:
-                for lo in range(0, d.n, 1024):  # chunked: CNN im2col buffers are large
-                    hi = min(lo + 1024, d.n)
-                    d.keys[lo:hi] = self.enc.forward(d.obs[lo:hi])
 
     def set_optimizer(self, kind="adam", lr=None):
         """Swap the optimizer ('adam' or 'rmsprop', see nn.py) and/or its learning rate; call before training starts."""

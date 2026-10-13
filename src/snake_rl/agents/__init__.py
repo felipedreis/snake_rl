@@ -34,8 +34,6 @@ AGENTS = {
     "mfec": _agent(MFECAgent),
     "ec_frozen": _agent(NECAgent, learn_embedding=False, N=N),
     "nec": _agent(NECAgent, learn_embedding=True, N=N),
-    "nec_refresh": _agent(NECAgent, learn_embedding=True, N=N, refresh_every=1000),
-    "nec_bonus": _agent(NECAgent, learn_embedding=True, N=N, bonus_beta=0.3),
     # CNN encoders (the paper's architecture family): same agents, conv trunk instead of MLP
     "dqn_cnn": _agent(DQNAgent, grid=True, N=1, encoder="cnn"),
     "dqn_nstep_cnn": _agent(DQNAgent, grid=True, N=N, encoder="cnn"),
