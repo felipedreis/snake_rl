@@ -44,7 +44,7 @@ def test_env_obs_shape_and_death():
     obs = env.reset()
     assert obs.shape == (env.obs_dim,) == (3 * 25,)
     for _ in range(10):  # going straight from the centre must hit the wall
-        _, r, term, _ = env.step(0)
+        _, r, term, _ = env.step(1)
         if term:
             break
     assert term and r == -1.0
@@ -87,16 +87,16 @@ def test_agent_runs(name, kw):
 
 def test_run_writes_results(tmp_path):
     main("dqn", 3, 500, size=6, root=str(tmp_path))
-    d = json.load(open(tmp_path / "g6_d0" / "dqn_s3.json"))
+    d = json.load(open(tmp_path / "g6_d0_abs" / "dqn_s3.json"))
     assert d["agent"] == "dqn" and d["steps"] == 500 and d["eps_floor"] == 0.02 and d["episodes"]
     main("dqn", 3, 500, size=6, root=str(tmp_path), eps_floor=0.1)
-    d = json.load(open(tmp_path / "g6_d0" / "dqn_eps0.1_s3.json"))
+    d = json.load(open(tmp_path / "g6_d0_abs" / "dqn_eps0.1_s3.json"))
     assert d["agent"] == "dqn" and d["eps_floor"] == 0.1
 
 
 def test_episode_log_splits_bonus_points_and_truncation(tmp_path):
     main("random", 0, 4000, size=6, root=str(tmp_path), map="rooms", bonus=5)
-    e = np.array(json.load(open(tmp_path / "g6_d0_rooms_b5" / "random_s0.json"))["episodes"])
+    e = np.array(json.load(open(tmp_path / "g6_d0_rooms_b5_abs" / "random_s0.json"))["episodes"])
     t, score, foods, trunc = e.T
     bonus = (score - foods) / 5
     assert e.shape[1] == 4 and np.all(bonus >= 0) and np.allclose(bonus, np.round(bonus))
@@ -126,7 +126,7 @@ def test_open_env_unchanged_by_new_options():
     oa, ob = a.reset(), b.reset()
     arng = np.random.default_rng(1)
     for _ in range(200):
-        act = int(arng.integers(3))
+        act = int(arng.integers(4))
         (oa, ra, ta, _), (ob, rb, tb, _) = a.step(act), b.step(act)
         assert np.array_equal(oa, ob) and ra == rb and ta == tb
         if ta:
@@ -140,14 +140,14 @@ def test_maps_are_valid(name, size):
     assert env.walls.any() and env.obs_shape == (4, size, size)
     env.reset()
     assert env.food not in env.wall_set
-    obs = env.step(0)[0].reshape(env.obs_shape)
+    obs = env.step(1)[0].reshape(env.obs_shape)
     assert obs[3].sum() == env.walls.sum()
 
 
 def test_wall_kills():
     env = Snake(size=7, map="rooms")  # row 3 is walled at cols 5,6; heading right from (3,3)
     env.reset()
-    rs = [env.step(0) for _ in range(2)]
+    rs = [env.step(1) for _ in range(2)]
     assert rs[-1][2] and rs[-1][1] == -1.0
 
 
@@ -156,14 +156,14 @@ def test_bonus_food_lifecycle():
     assert env.obs_shape == (4, 7, 7)
     env.reset()
     env.food = (3, 4)  # right ahead
-    obs, r, _, _ = env.step(0)
+    obs, r, _, _ = env.step(1)
     assert r == 1.0 and env.bonus_pos is not None and env.bonus_left == 3
     assert obs.reshape(env.obs_shape)[3].max() == 1.0
     env.bonus_pos = (0, 0)  # park it out of the way; it must vanish after bonus_life steps
     for _ in range(2):
-        env.step(0)
+        env.step(1)
         assert env.bonus_pos is not None
-    env.step(0)
+    env.step(1)
     assert env.bonus_pos is None
 
 
@@ -171,7 +171,7 @@ def test_bonus_food_pays_and_grows():
     env = Snake(size=7, bonus=5.0, seed=0)
     env.reset()
     env.bonus_pos, env.bonus_left = (3, 4), 5
-    _, r, term, _ = env.step(0)
+    _, r, term, _ = env.step(1)
     assert r == 5.0 and not term and env.score == 5 and env.bonus_pos is None and len(env.body) == 3
 
 
@@ -184,13 +184,13 @@ def test_epsilon_schedules():
 
 def test_eps_decay_is_recorded_and_tagged(tmp_path):
     main("random", 0, 300, size=6, root=str(tmp_path), eps_floor=0.005, eps_decay=0)
-    d = json.load(open(tmp_path / "g6_d0" / "random_eps0.005_epsd0_s0.json"))
+    d = json.load(open(tmp_path / "g6_d0_abs" / "random_eps0.005_epsd0_s0.json"))
     assert d["eps_floor"] == 0.005 and d["eps_decay"] == 0
 
 
 def _board(name, **kw):
-    """Run kwargs for `main` and the results-dir tag; the *_naturecnn agents need the pixel render."""
-    return ({**kw, "render": "pixels"}, "_px") if name.endswith("naturecnn") else (kw, "")
+    """Run kwargs for `main` and the results-dir tag (every name ends in _abs); the *_naturecnn agents need the pixel render."""
+    return ({**kw, "render": "pixels"}, "_px_abs") if name.endswith("naturecnn") else (kw, "_abs")
 
 
 @pytest.mark.parametrize("name", sorted(AGENTS))
@@ -214,7 +214,7 @@ def test_food_radius_keeps_food_within_walkable_reach():
             assert env._steps_from_head()[env.food] <= 3
             placed += 1
         before = env.food
-        _, r, term, trunc = env.step(int(rng.integers(3)))
+        _, r, term, trunc = env.step(int(rng.integers(4)))
         new_food = env.food != before
         if term or trunc:
             env.reset()
@@ -227,7 +227,7 @@ def test_food_curriculum_schedule_and_run_tag(tmp_path):
     assert food_radius(0, (2, 100), 25) == 2 and food_radius(50, (2, 100), 25) == 26
     assert food_radius(100, (2, 100), 25) is None  # curriculum over: anywhere, as in the real game
     main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 200))
-    d = json.load(open(tmp_path / "g6_d0" / "random_fc2-200_s0.json"))
+    d = json.load(open(tmp_path / "g6_d0_abs" / "random_fc2-200_s0.json"))
     assert d["food_curriculum"] == [2, 200]
 
 
@@ -242,12 +242,12 @@ def test_food_relocation_moves_uneaten_food_near_the_head():
     env = Snake(size=15, seed=1, map="rooms", food_radius=3, relocate_food=True)
     env.reset()
     env.food, env.food_age = (0, 0), 2 * 3 + 5 - 1     # far away, one step short of the patience
-    env.step(0)                                         # straight ahead from the centre: safe, eats nothing
+    env.step(1)                                         # straight ahead from the centre: safe, eats nothing
     assert env.food != (0, 0) and env._steps_from_head()[env.food] <= 3 and env.food_age == 0
     off = Snake(size=15, seed=1, map="rooms", food_radius=3)  # relocation off: the food stays put
     off.reset()
     off.food, off.food_age = (0, 0), 100
-    off.step(0)
+    off.step(1)
     assert off.food == (0, 0)
 
 
@@ -255,7 +255,7 @@ def test_relocation_needs_a_curriculum(tmp_path):
     with pytest.raises(ValueError):
         main("random", 0, 10, size=6, root=str(tmp_path), food_relocate=True)
     main("random", 0, 300, size=6, root=str(tmp_path), food_curriculum=(2, 100, 200), food_relocate=True)
-    d = json.load(open(tmp_path / "g6_d0" / "random_fc2-100-200_reloc_s0.json"))
+    d = json.load(open(tmp_path / "g6_d0_abs" / "random_fc2-100-200_reloc_s0.json"))
     assert d["food_curriculum"] == [2, 100, 200] and d["food_relocate"] is True
 
 
@@ -288,7 +288,7 @@ def test_train_telemetry_is_logged_and_streamed(name, tmp_path):
     kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "off"), train_log_every=0, **kw)
     main(name, 4, 1500, root=str(tmp_path / "on"), train_log_every=500, **kw)
-    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4"
+    stem = f"d0_rooms_b5_abs/{name}_eps0.05_epsd600_s4"
     a, b = (json.load(open(tmp_path / r / f"{stem}.json")) for r in ("off", "on"))
     assert a["episodes"] == b["episodes"] and a["train"] == []
     live = [json.loads(l) for l in open(tmp_path / "on" / f"{stem}.train.jsonl")]  # kept after the run
@@ -323,7 +323,7 @@ def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
     kw = dict(size=7, map="rooms", bonus=5, eps_floor=0.05, eps_decay=600)
     main(name, 4, 1500, root=str(tmp_path / "plain"), **kw)
     main(name, 4, 1500, root=str(tmp_path / "saved"), save_agent=True, save_every=500, **kw)
-    stem = f"d0_rooms_b5/{name}_eps0.05_epsd600_s4"
+    stem = f"d0_rooms_b5_abs/{name}_eps0.05_epsd600_s4"
     a, b = (json.load(open(tmp_path / r / f"{stem}.json")) for r in ("plain", "saved"))
     assert a["episodes"] == b["episodes"]
     for t in (500, 1000, 1500):
@@ -333,14 +333,14 @@ def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
     assert getattr(ck["agent"], "S", None) is None and getattr(ck["agent"], "R_obs", None) is None  # no replay saved
     env = Snake(size=7, map="rooms", bonus=5, seed=0)
     fs = list(frames(ck["agent"], env, 0.0, 2, np.random.default_rng(0), None))
-    assert sum(f["end"] is not None for f in fs) == 2 and all(f["a"] in (0, 1, 2) for f in fs if f["end"] is None)
+    assert sum(f["end"] is not None for f in fs) == 2 and all(f["a"] in (0, 1, 2, 3) for f in fs if f["end"] is None)
 
 
 def test_checkpoint_records_the_run_settings(tmp_path):
     import pickle
     main("random", 0, 300, size=9, root=str(tmp_path), food_curriculum=(2, 100, 400), food_relocate=True,
          save_agent=True)
-    ck = pickle.load(open(tmp_path / "g9_d0" / "random_fc2-100-400_reloc_s0.agent.pkl", "rb"))
+    ck = pickle.load(open(tmp_path / "g9_d0_abs" / "random_fc2-100-400_reloc_s0.agent.pkl", "rb"))
     assert ck["t"] == 300 and ck["size"] == 9 and ck["food_curriculum"] == (2, 100, 400) and ck["food_relocate"]
 
 
@@ -410,7 +410,7 @@ def test_pixel_render_is_the_same_game_in_gray():
     assert np.array_equal(f[0], f[3])
     arng = np.random.default_rng(1)
     for _ in range(600):  # identical dynamics and rng draws: only the picture differs
-        a = int(arng.integers(3))
+        a = int(arng.integers(4))
         (_, rg, tg, ug), (o, rp, tp, up) = g.step(a), px.step(a)
         assert (rg, tg, ug) == (rp, tp, up) and g.body == px.body and g.food == px.food
         fr = o.reshape(4, 84, 84)[3]
@@ -421,9 +421,9 @@ def test_pixel_render_is_the_same_game_in_gray():
             g.reset(), px.reset()
     # the stack holds the last 4 frames, newest last, and static_obs leaves it alone
     px.reset()
-    o1, *_ = px.step(0)
+    o1, *_ = px.step(1)
     s = px.static_obs()
-    o2, *_ = px.step(0)
+    o2, *_ = px.step(1)
     assert np.array_equal(o2.reshape(4, -1)[2], o1.reshape(4, -1)[3]) and not np.array_equal(s, o2)
     assert np.array_equal(px.static_obs().reshape(4, -1)[0], px.static_obs().reshape(4, -1)[3])
 
@@ -460,9 +460,9 @@ def test_uint8_replay_matches_float_replay():
 def test_pixel_run_is_tagged_and_checkpointed(tmp_path):
     import pickle
     main("random", 0, 300, size=9, root=str(tmp_path), render="pixels", save_agent=True, probe_every=0)
-    d = json.load(open(tmp_path / "g9_d0_px" / "random_s0.json"))
+    d = json.load(open(tmp_path / "g9_d0_px_abs" / "random_s0.json"))
     assert d["render"] == "pixels"
-    ck = pickle.load(open(tmp_path / "g9_d0_px" / "random_s0.agent.pkl", "rb"))
+    ck = pickle.load(open(tmp_path / "g9_d0_px_abs" / "random_s0.agent.pkl", "rb"))
     assert ck["render"] == "pixels"
 
 
@@ -492,8 +492,8 @@ def test_optimizer_setting_is_recorded_tagged_and_changes_training(name, tmp_pat
     kw = dict(size=6, eps_floor=0.05, eps_decay=300)
     main(name, 4, 1500, root=str(tmp_path), **kw)
     main(name, 4, 1500, root=str(tmp_path), opt="rmsprop", lr=1e-4, **kw)
-    a = json.load(open(tmp_path / "g6_d0" / f"{name}_eps0.05_epsd300_s4.json"))
-    b = json.load(open(tmp_path / "g6_d0" / f"{name}_rmsprop_lr0.0001_eps0.05_epsd300_s4.json"))
+    a = json.load(open(tmp_path / "g6_d0_abs" / f"{name}_eps0.05_epsd300_s4.json"))
+    b = json.load(open(tmp_path / "g6_d0_abs" / f"{name}_rmsprop_lr0.0001_eps0.05_epsd300_s4.json"))
     assert (a["opt"], a["lr"], b["opt"], b["lr"]) == ("adam", None, "rmsprop", 1e-4)
     assert a["episodes"] != b["episodes"]
     ag = make_agent(name, Snake(size=6), np.random.default_rng(0))
@@ -521,16 +521,16 @@ def test_pixel_probe_stack_shows_a_snake_moving_straight_in():
 
 def test_results_dir_tags_for_the_pixel_frame_stack(tmp_path):
     from snake_rl.run import results_dir
-    assert results_dir(25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5"
-    assert results_dir(25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px"
-    assert results_dir(25, "r", "rooms", 5.0, "pixels", 2) == "r/g25_d0_rooms_b5_px_fs2"
+    assert results_dir(25, "r", "rooms", 5.0) == "r/g25_d0_rooms_b5_abs"
+    assert results_dir(25, "r", "rooms", 5.0, "pixels", 4) == "r/g25_d0_rooms_b5_px_abs"
+    assert results_dir(25, "r", "rooms", 5.0, "pixels", 2) == "r/g25_d0_rooms_b5_px_fs2_abs"
     with pytest.raises(ValueError):
         Snake(size=7, frame_stack=2)  # only the pixel render stacks frames
 
 
-def test_absolute_actions_move_in_board_directions_and_ignore_reversals():
-    env = Snake(size=9, seed=1, actions="absolute")
-    assert env.n_actions == 4 and Snake(size=9).n_actions == 3
+def test_actions_move_in_board_directions_and_ignore_reversals():
+    env = Snake(size=9, seed=1)
+    assert env.n_actions == 4
     env.reset()  # heading right
     head = env.body[0]
     env.step(0)  # up
@@ -539,35 +539,32 @@ def test_absolute_actions_move_in_board_directions_and_ignore_reversals():
     assert env.dir == 0 and env.body[0] == (head[0] - 2, head[1])
     env.step(3)  # left
     assert env.dir == 3
-    with pytest.raises(ValueError):
-        Snake(actions="diagonal")
 
 
-def test_absolute_probe_set_adds_only_the_reversal_direction():
+def test_probe_set_has_four_actions_and_food_within_reach():
     from snake_rl.probe import make_probe_set
-    r = make_probe_set(size=9, map="open", n_configs=10)
-    a = make_probe_set(size=9, map="open", n_configs=10, actions="absolute")
-    assert a["good"].shape == (len(r["good"]), 4) and np.array_equal(a["X"], r["X"])
-    # Absolute actions add one direction, the reversal, which keeps going straight: it is good exactly when
-    # "straight" is. Every other direction is one of the three relative actions.
-    assert a["good"].sum() == r["good"].sum() + r["good"][:, 0].sum()
+    P = make_probe_set(size=9, map="open", n_configs=10)
+    assert P["good"].shape == (len(P["X"]), 4) and P["good"].any(1).all()  # food 1-2 steps away: some move approaches it
 
 
-def test_absolute_run_is_tagged_recorded_and_checkpointed(tmp_path):
+def test_run_is_tagged_recorded_and_checkpointed(tmp_path):
     import pickle
+    from snake_rl.env import check_absolute
     from snake_rl.run import results_dir
-    assert results_dir(25, "r", "rooms", 5.0, "pixels", actions="absolute") == "r/g25_d0_rooms_b5_px_abs"
-    assert results_dir(7, "r") == "r/d0"
-    main("dqn", 1, 300, size=7, root=str(tmp_path), actions="absolute", probe_every=150, save_agent=True)
+    assert results_dir(7, "r") == "r/d0_abs"
+    main("dqn", 1, 300, size=7, root=str(tmp_path), probe_every=150, save_agent=True)
     d = json.load(open(tmp_path / "d0_abs" / "dqn_s1.json"))
     assert d["actions"] == "absolute" and len(d["probes"]) >= 1
     ck = pickle.load(open(tmp_path / "d0_abs" / "dqn_s1.agent.pkl", "rb"))
     assert ck["actions"] == "absolute" and ck["agent"].nA == 4
+    check_absolute(ck, "new")
+    with pytest.raises(ValueError):
+        check_absolute({"size": 7}, "a checkpoint from before absolute actions")
 
 
 @pytest.mark.parametrize("name", ["dqn", "nec", "mfec"])
-def test_agents_run_with_absolute_actions(name):
-    env = Snake(size=7, seed=2, actions="absolute")
+def test_agents_run_with_four_actions(name):
+    env = Snake(size=7, seed=2)
     agent = make_agent(name, env, np.random.default_rng(0))
     obs = env.reset()
     for t in range(300):
@@ -602,7 +599,7 @@ def test_far_probe_set_distances_steering_and_ties():
 
 def test_far_probe_set_stores_pixels_as_uint8():
     from snake_rl.probe import make_far_probe_set
-    F = make_far_probe_set(size=7, map="open", n_configs=5, render="pixels", actions="absolute")
+    F = make_far_probe_set(size=7, map="open", n_configs=5, render="pixels")
     assert F["X"].dtype == np.uint8 and F["X"].shape[1] == 4 * 84 * 84
     assert F["good"].shape[1] == 4 and F["X"].max() == 255  # the head's gray level
 
@@ -625,8 +622,8 @@ def test_a_short_run_is_the_prefix_of_a_longer_run(tmp_path):
     # Protocol check C2: nothing in training depends on the total number of steps (the epsilon schedule is a function of t).
     main("dqn", 3, 600, root=str(tmp_path / "short"), size=7)
     main("dqn", 3, 1500, root=str(tmp_path / "long"), size=7)
-    a = json.load(open(tmp_path / "short" / "d0" / "dqn_s3.json"))["episodes"]
-    b = [e for e in json.load(open(tmp_path / "long" / "d0" / "dqn_s3.json"))["episodes"] if e[0] <= 600]
+    a = json.load(open(tmp_path / "short" / "d0_abs" / "dqn_s3.json"))["episodes"]
+    b = [e for e in json.load(open(tmp_path / "long" / "d0_abs" / "dqn_s3.json"))["episodes"] if e[0] <= 600]
     assert a and a == b
 
 
@@ -656,15 +653,15 @@ def test_geometry_analysis_of_a_checkpoint(name, tmp_path):
     import json
     from snake_rl.geometry import analyse
     main(name, 3, 600, root=str(tmp_path), size=7, probe_every=300, save_every=300, save_agent=True)
-    run = json.load(open(tmp_path / "d0" / f"{name}_s3.json"))
-    res = analyse(str(tmp_path / "d0" / f"{name}_s3.agent_t300.pkl"), episodes=4, max_states=300)
+    run = json.load(open(tmp_path / "d0_abs" / f"{name}_s3.json"))
+    res = analyse(str(tmp_path / "d0_abs" / f"{name}_s3.agent_t300.pkl"), episodes=4, max_states=300)
     inrun = dict(run["probes"])[300]
     assert res["t"] == 300 and all(abs(res["probe"][k] - inrun[k]) < 1e-9 for k in ("steer", "knn_offset", "knn_config", "decode"))
     assert {"head", "food", "offset_board", "offset_ego"} <= set(res["onpolicy"]) and 0 <= res["qfood"]["ratio"]
     assert 0 <= res["action_purity"]["purity"] <= 1 and 0 <= res["action_purity"]["chance"] <= 1
     assert ("memory" in res) == (name == "nec")
     if name == "nec":
-        assert len(res["memory"]["coherence"]) == 3 and all(0 <= c for c in res["memory"]["coherence"] if c is not None)
+        assert len(res["memory"]["coherence"]) == 4 and all(0 <= c for c in res["memory"]["coherence"] if c is not None)
     for lab in ("head", "food", "offset_board", "offset_ego"):
         assert 0 <= res["onpolicy"][lab]["purity"] <= 1 and 0 <= res["onpolicy"][lab]["chance"] <= 1
 
@@ -822,5 +819,5 @@ def test_agent_kw_overrides_constructor_settings(tmp_path):
     assert make_agent("dqn", env, np.random.default_rng(0), target_every=123).target_every == 123
     assert make_agent("dqn", env, np.random.default_rng(0)).target_every == 1000  # no override: the registered agent
     main("dqn", 1, 300, size=5, root=str(tmp_path), agent_kw={"target_every": 50})
-    d = json.load(open(tmp_path / "g5_d0" / "dqn_target_every50_s1.json"))
+    d = json.load(open(tmp_path / "g5_d0_abs" / "dqn_target_every50_s1.json"))
     assert d["agent_kw"] == {"target_every": 50}

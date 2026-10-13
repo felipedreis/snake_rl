@@ -26,5 +26,5 @@ def test_old_checkpoint_loads_and_gives_the_same_q_values(name):
         ck = pickle.load(f)
     with open(os.path.join(GOLDEN, f"ckpt_{name}.q.json")) as f:
         expected = json.load(f)
-    obs = Snake(size=7, seed=9, actions="absolute").reset()
+    obs = Snake(size=7, seed=9).reset()
     assert checkpoint_q(ck["agent"], obs) == expected

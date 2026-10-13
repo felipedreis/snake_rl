@@ -75,12 +75,12 @@ def _probe_obs(env, body, d):
 
 
 def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0, render="grid",
-                   frame_stack=None, actions="relative", compact=False):
+                   frame_stack=None, compact=False):
     """Returns dict(X obs rows, group config id, offset class id, good (rows, n_actions) bool, offsets list, dist).
 
     dist: walkable steps from the head to the food (body and walls block), one per row. compact=True stores pixel-render
     observations as uint8 gray levels (exact: the render only produces k/255), for large sets."""
-    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, actions=actions)
+    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack)
     env.reset()
     rng = np.random.default_rng(seed)
     # Every (head cell, heading) whose straight body fits, in a fixed shuffled order; take the first n_configs

@@ -4,7 +4,7 @@ Observation: binary/float channels over an n x n grid, flattened (see `obs_shape
   head, body, food, [obstacle if map != "open"], [bonus if bonus > 0].
 The bonus channel holds the remaining lifetime fraction (1 -> 0) at the bonus food's cell, so the
 agent can see how long the detour is still worth it.
-Actions (relative): 0 = straight, 1 = turn right, 2 = turn left.
+Actions (absolute, as an Atari joystick): 0 = up, 1 = right, 2 = down, 3 = left; a reversal keeps going straight.
 Reward: +1 food, +`bonus` bonus food, -1 death, 0 otherwise. `score` accumulates the food rewards.
 
 Maps (obstacles are lethal, food never spawns on them; the free area is always connected):
@@ -40,7 +40,6 @@ import numpy as np
 
 MAPS = ("open", "pillars", "walls", "rooms")
 RENDERS = ("grid", "pixels")
-ACTION_MODES = ("relative", "absolute")
 PIXELS = 84  # side of the pixel render, as in DQN's preprocessing
 # Gray level (0-255) of each thing in the pixel render; all distinct, and bonus 200-240 stays clear of the rest.
 GRAY = dict(wall=60, body=110, food=160, bonus=200, bonus_span=40, head=255)
@@ -69,6 +68,13 @@ def make_walls(name, n):
     return w
 
 
+def check_absolute(settings, source):
+    """Readers of checkpoints: only absolute actions exist now. Runs from before that option (no "actions" key) and
+    relative-action runs need the code at the `pre-cleanup` git tag."""
+    if settings.get("actions", "relative") != "absolute":
+        raise ValueError(f"{source}: a relative-action run; check out the pre-cleanup tag to use it")
+
+
 def _connected(free):
     cells = np.argwhere(free)
     seen, todo = {tuple(cells[0])}, [tuple(cells[0])]
@@ -87,9 +93,7 @@ class Snake:
 
     def __init__(self, size=7, max_idle=None, seed=0,
                  map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None, relocate_food=False,
-                 render="grid", frame_stack=None, actions="relative"):
-        if actions not in ACTION_MODES:
-            raise ValueError(f"unknown actions {actions!r}; choose from {ACTION_MODES}")
+                 render="grid", frame_stack=None):
         if render not in RENDERS:
             raise ValueError(f"unknown render {render!r}; choose from {RENDERS}")
         if render == "pixels" and size > PIXELS:
@@ -115,19 +119,17 @@ class Snake:
         start = [(c, c), (c, c - 1), (c, c + 1)]  # two body cells + the one straight ahead
         if any(self.walls[p] for p in start) or not _connected(~self.walls):
             raise ValueError(f"map {map!r} does not fit a {size}x{size} board")
-        self.actions = actions
-        self.n_actions = 3 if actions == "relative" else 4  # absolute: up, right, down, left
+        self.n_actions = 4  # up, right, down, left
         self.channels = 3 + bool(self.wall_set) + (self.bonus_r > 0)
         self.obs_shape = (self.channels, size, size)
         if self.pixels:
             self.obs_shape = (fs, PIXELS, PIXELS)
         self.obs_dim = int(np.prod(self.obs_shape))
 
-    def heading_after(self, d, a):
-        """Heading after action `a` from heading `d`. Relative: straight / right / left. Absolute: the direction
-        `a` itself (index into DIRS); a reversal keeps going straight, as a joystick against the snake does."""
-        if self.actions == "relative":
-            return (d + (0, 1, -1)[a]) % 4
+    @staticmethod
+    def heading_after(d, a):
+        """Heading after action `a` from heading `d`: the direction `a` itself (index into DIRS); a reversal keeps going
+        straight, as a joystick against the snake does."""
         return d if a == (d + 2) % 4 else a
 
     def reset(self):
