@@ -52,7 +52,7 @@ def load(spec, size, map, bonus, seed, render="grid", actions="relative", game="
             board = dict(game="pacman", frame_skip=ck.get("frame_skip", 4), frame_stack=ck.get("frame_stack"))
             return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
         board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"],
-                     render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0),
+                     render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"),
                      actions=ck.get("actions", "relative"))
         return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:

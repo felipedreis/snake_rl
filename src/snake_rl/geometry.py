@@ -30,7 +30,7 @@ def load(path):
     with open(path, "rb") as f:
         ck = pickle.load(f)
     board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], render=ck.get("render", "grid"),
-                 frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0), actions=ck.get("actions", "relative"))
+                 frame_stack=ck.get("frame_stack"), actions=ck.get("actions", "relative"))
     return ck, board
 
 
@@ -136,7 +136,7 @@ def analyse(path, episodes=20, eps=0.05, max_states=3000, seed=777):
     ck, board = load(path)
     agent, n = ck["agent"], board["size"]
     P = make_probe_set(n, board["map"], board["bonus"], render=board["render"], frame_stack=board["frame_stack"],
-                       wall_scale=board["wall_scale"], actions=board["actions"])
+                       actions=board["actions"])
     res = dict(checkpoint=os.path.basename(path), agent=ck["name"], seed=ck["seed"], t=ck["t"], opt=ck.get("opt"), lr=ck.get("lr"),
                board=board, probe=probe(agent, P))
     Zp, Qp = agent.probe_embed(P["X"])

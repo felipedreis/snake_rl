@@ -30,10 +30,8 @@ grayscale image (each cell a (84 // n)-pixel square, centred, the margin filled 
 the last `frame_stack` (default 4) such frames, as DQN and NEC see Atari: obs_shape = (4, 84, 84), values k/255. Gray levels
 (of 255): empty 0, wall 60, body 110, food 160, bonus 200-240 (brighter = more lifetime left), head 255. There is no
 action repeat and no max over frames (nothing flickers). The stack starts as copies of the first frame of an episode.
-`static_obs()` gives the stack for the current state alone (probes build states by hand).
-Two ablation options, both off by default: `frame_stack=K` also stacks the last K grid observations (channels concatenated,
-obs_shape = (K * channels, n, n)), and `wall_scale` multiplies the walls' value (grid channel, or the pixel gray level
-60 * wall_scale, clipped to 255); 0 hides the walls from the agent (they still kill).
+`static_obs()` gives the stack for the current state alone (probes build states by hand). The grid observation is never
+stacked.
 
 With the defaults (map="open", bonus=0, render="grid") the env is bit-for-bit the original one, RNG draws included.
 """
@@ -89,19 +87,21 @@ class Snake:
 
     def __init__(self, size=7, max_idle=None, seed=0,
                  map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None, relocate_food=False,
-                 render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
+                 render="grid", frame_stack=None, actions="relative"):
         if actions not in ACTION_MODES:
             raise ValueError(f"unknown actions {actions!r}; choose from {ACTION_MODES}")
         if render not in RENDERS:
             raise ValueError(f"unknown render {render!r}; choose from {RENDERS}")
         if render == "pixels" and size > PIXELS:
             raise ValueError("render='pixels' needs size <= 84")
+        if render == "grid" and frame_stack not in (None, 1):
+            raise ValueError("only the pixel render stacks frames")
         fs = frame_stack or (4 if render == "pixels" else 1)  # pixels: DQN's 4; grid: 1 = a single observation
         self.n = size
-        self.render_mode, self.frame_stack, self.wall_scale = render, fs, float(wall_scale)
+        self.render_mode, self.frame_stack = render, fs
         self.pixels = render == "pixels"
         self.cell = PIXELS // size if self.pixels else 0  # pixels per board cell
-        self._frames = deque(maxlen=fs)  # the last `frame_stack` frames (only used when stacking)
+        self._frames = deque(maxlen=fs)  # the last `frame_stack` frames (pixel render)
         self.rng = np.random.default_rng(seed)
         self.max_idle = max_idle or 2 * size * size
         self.map, self.bonus_r, self.bonus_every = map, float(bonus), bonus_every
@@ -121,8 +121,6 @@ class Snake:
         self.obs_shape = (self.channels, size, size)
         if self.pixels:
             self.obs_shape = (fs, PIXELS, PIXELS)
-        elif fs > 1:
-            self.obs_shape = (self.channels * fs, size, size)  # the last fs grid observations, channels concatenated
         self.obs_dim = int(np.prod(self.obs_shape))
 
     def heading_after(self, d, a):
@@ -184,7 +182,7 @@ class Snake:
     def _frame(self):
         """The current board as an 84x84 uint8 image (pixel render)."""
         g = np.zeros((self.n, self.n), np.uint8)
-        wall = int(round(min(255.0, GRAY["wall"] * self.wall_scale)))  # wall_scale 1 = the default level
+        wall = GRAY["wall"]
         g[self.walls] = wall
         for (r, c) in list(self.body)[1:]:
             g[r, c] = GRAY["body"]
@@ -203,28 +201,21 @@ class Snake:
     def _scale(frames):
         return (np.stack(frames).astype(np.float32) / np.float32(255)).ravel()
 
-    def _one(self):
-        """The current state as a single frame: the gray image (pixels) or the flat channel grid."""
-        return self._frame() if self.pixels else self._grid_obs()
-
-    def _stack(self, frames):
-        return self._scale(frames) if self.pixels else np.concatenate(frames)
-
     def static_obs(self):
         """Observation of the current state as if it had always been so (the frame stack is not touched)."""
-        if self.frame_stack == 1 and not self.pixels:
-            return self._obs()
-        return self._stack([self._one()] * self.frame_stack)
+        if not self.pixels:
+            return self._grid_obs()
+        return self._scale([self._frame()] * self.frame_stack)
 
     def _obs(self):
-        if self.frame_stack == 1 and not self.pixels:
+        if not self.pixels:
             return self._grid_obs()
-        f = self._one()
+        f = self._frame()
         if not self._frames:
             self._frames.extend([f] * self.frame_stack)
         else:
             self._frames.append(f)
-        return self._stack(list(self._frames))
+        return self._scale(list(self._frames))
 
     def _grid_obs(self):
         o = np.zeros((self.channels, self.n, self.n), np.float32)
@@ -236,7 +227,7 @@ class Snake:
             o[2, self.food[0], self.food[1]] = 1.0
         k = 3
         if self.wall_set:
-            o[k] = self.walls if self.wall_scale == 1.0 else self.walls * self.wall_scale
+            o[k] = self.walls
             k += 1
         if self.bonus_r > 0:
             if self.bonus_pos is not None:
