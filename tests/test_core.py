@@ -330,7 +330,7 @@ def test_saved_agent_can_be_watched_without_changing_training(name, tmp_path):
         assert (tmp_path / "saved" / f"{stem}.agent_t{t}.pkl").exists()
     ck = pickle.load(open(tmp_path / "saved" / f"{stem}.agent.pkl", "rb"))
     assert ck["size"] == 7 and ck["map"] == "rooms" and ck["t"] == 1500
-    assert getattr(ck["agent"], "S", None) is None and getattr(ck["agent"], "R_obs", None) is None  # no replay saved
+    assert getattr(ck["agent"], "replay", None) is None  # no replay saved
     env = Snake(size=7, map="rooms", bonus=5, seed=0)
     fs = list(frames(ck["agent"], env, 0.0, 2, np.random.default_rng(0), None))
     assert sum(f["end"] is not None for f in fs) == 2 and all(f["a"] in (0, 1, 2, 3) for f in fs if f["end"] is None)
@@ -352,10 +352,10 @@ def test_nec_encoder_gradient_matches_finite_differences():
     for d in ag.dnds:
         for _ in range(10):
             d._insert(rng.normal(size=3), rng.normal(), 0)
-    ag.R_obs[:20], ag.R_act[:20], ag.R_ret[:20] = rng.normal(size=(20, 6)), rng.integers(2, size=20), rng.normal(size=20)
-    ag.r_n = 20
-    idx = copy.deepcopy(ag.rng).integers(ag.r_n, size=ag.batch)  # the minibatch _train is about to draw
-    X, A, R = ag.R_obs[idx], ag.R_act[idx], ag.R_ret[idx]
+    for o, a, r in zip(rng.normal(size=(20, 6)), rng.integers(2, size=20), rng.normal(size=20)):
+        ag.replay.add(obs=o, act=a, ret=r)
+    b = ag.replay.sample(copy.deepcopy(ag.rng), ag.batch)  # the minibatch _train is about to draw
+    X, A, R = b["obs"], b["act"], b["ret"]
     got = {}
     ag.opt.step = lambda grads: got.setdefault("g", grads)  # capture the gradient instead of applying it
     ag.opt.last = {}  # the stubbed step records no optimizer telemetry

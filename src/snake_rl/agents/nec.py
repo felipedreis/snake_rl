@@ -27,6 +27,7 @@ giving an MFEC-like ablation that keeps everything else identical.
 """
 import numpy as np
 from snake_rl.agents.memory import KeyValueMemory
+from snake_rl.agents.replay import Replay
 from snake_rl.nn import Adam, make_net, make_optimizer
 from snake_rl.returns import NStep
 from snake_rl.telemetry import TrainStats
@@ -108,14 +109,10 @@ class NECAgent:
         # nstep: holds the last N transitions until their N-step return is known (see returns.py).
         self.nstep = NStep(N, gamma)
         self.alpha, self.mem_lr, self.batch, self.train_every = alpha, mem_lr, batch, train_every
-        # Replay buffer for the slow path, a circular array like DQN's. Unlike DQN it stores the finished
-        # target (computed once, when the row is written) rather than the pieces needed to rebuild it.
-        self.u8 = obs_u8
-        self.R_obs = np.zeros((replay_cap, obs_dim), np.uint8 if obs_u8 else np.float64)  # observation in which the action was taken
-        self.R_act = np.zeros(replay_cap, np.int64)   # action taken
-        self.R_ret = np.zeros(replay_cap)             # its N-step Q target (the value written to the DND)
-        # r_n: rows filled; r_i: next row to write (wraps around); r_cap: size.
-        self.r_n, self.r_i, self.r_cap = 0, 0, replay_cap
+        # Replay buffer for the slow path (replay.py). Unlike DQN it stores the finished target (computed once, when
+        # the row is written) rather than the pieces needed to rebuild it: obs (observation in which the action was
+        # taken), act (the action), ret (its N-step Q target, the value written to the DND).
+        self.replay = Replay(replay_cap, obs_dim, ("obs",), dict(act=np.int64, ret=np.float64), u8=obs_u8)
         self.stats = TrainStats()  # per-update training telemetry (slow path), read by run.py via train_stats()
         # self._h (set in act): embedding of the current observation. observe() pairs it with the action
         # and later writes it to the DND as the key, so it is computed only once.
@@ -148,10 +145,8 @@ class NECAgent:
             # Fast path: write it into the memory of the action taken; usable on the very next lookup.
             self.dnds[act].write(h, target, t, self.alpha)
             # And keep it in replay for the slow path.
-            self.R_obs[self.r_i], self.R_act[self.r_i], self.R_ret[self.r_i] = (np.rint(o * 255) if self.u8 else o), act, target
-            self.r_i = (self.r_i + 1) % self.r_cap
-            self.r_n = min(self.r_n + 1, self.r_cap)
-        if self.learn and t % self.train_every == 0 and self.r_n >= self.batch:
+            self.replay.add(obs=o, act=act, ret=target)
+        if self.learn and t % self.train_every == 0 and self.replay.n >= self.batch:
             self._train()
 
     def set_optimizer(self, kind="adam", lr=None):
@@ -180,10 +175,8 @@ class NECAgent:
         values, so the gradient is used three ways: the encoder via Adam, and the stored keys and
         values via plain gradient descent with rate mem_lr. All derivatives are written out by hand.
         """
-        idx = self.rng.integers(self.r_n, size=self.batch)
-        X, A, R = self.R_obs[idx], self.R_act[idx], self.R_ret[idx]  # observations, actions, targets
-        if self.u8:
-            X = X.astype(np.float32) / np.float32(255)
+        b = self.replay.sample(self.rng, self.batch)
+        X, A, R = b["obs"], b["act"], b["ret"]  # observations, actions, targets
         H = self.enc.forward(X)  # (batch, key_dim) embeddings
         gH = np.zeros_like(H)    # dL/dH, filled in per action below
         B = self.batch
@@ -227,7 +220,7 @@ class NECAgent:
 
     def __getstate__(self):
         """Pickle without the replay buffer (GBs on big boards): enough to act, e.g. for snake-watch, not to resume."""
-        return {k: (None if k in ("R_obs", "R_act", "R_ret") else v) for k, v in self.__dict__.items()}
+        return {k: (None if k == "replay" else v) for k, v in self.__dict__.items()}
 
     def train_stats(self):
         """Window means of the slow-path training telemetry since the last call (see telemetry.py)."""
