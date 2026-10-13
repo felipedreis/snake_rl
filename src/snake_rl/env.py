@@ -33,7 +33,7 @@ action repeat and no max over frames (nothing flickers). The stack starts as cop
 `static_obs()` gives the stack for the current state alone (probes build states by hand). The grid observation is never
 stacked.
 
-With the defaults (map="open", bonus=0, render="grid") the env is bit-for-bit the original one, RNG draws included.
+Options that are off (map="open", bonus=0, no food radius) draw no random numbers, so they cannot shift the game's RNG.
 """
 from collections import deque
 import numpy as np
