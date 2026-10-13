@@ -1,6 +1,6 @@
 # Experiment protocol: the final ladder, 1M steps on Snake 10x10 and Ms. Pac-Man
 
-**Status: DRAFT, not frozen yet.** Written by Claude on the experimenter's direction (2026-10-13), to be reviewed by them.
+**Status: pre-registered, frozen on 2026-10-13.** Written by Claude on the experimenter's direction and approved by them.
 
 - **Frozen files:** `PROTOCOL.md`, `analyze.py`, `make_specs.py` and the four specs `ansible/experiments/final_ladder_{snake,pacman}{,_memory}.yml`.
   At freezing they are hashed into `FROZEN.sha256` together with the commit that contains them, and that commit is made before the first run is
