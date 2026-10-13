@@ -1,0 +1,52 @@
+# Pre-registered in docs/experiments/final_ladder/PROTOCOL.md (frozen; hashes in FROZEN.sha256). The snake half of the ladder.
+# The fast arms (DQN, N-step DQN, MFEC, random) on 'normal' (3-day limit); NEC and ec_frozen are in final_ladder_snake_memory.yml.
+name: final_ladder_snake
+command: snake-run
+ccad_partition: normal
+ccad_qos: normal_qos
+time: "3-00:00:00"
+mem: 10G
+max_parallel: 40
+results_dir: exp_final_ladder
+pull_agents: true
+jobs:
+  - "dqn 21 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 22 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 23 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 24 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 25 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 26 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 27 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 28 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 29 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 30 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 21 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 22 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 23 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 24 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 25 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 26 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 27 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 28 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 29 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 30 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "mfec 21 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 22 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 23 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 24 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 25 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 26 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 27 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 28 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 29 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 30 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "random 21 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 22 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 23 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 24 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 25 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 26 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 27 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 28 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 29 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
+  - "random 30 1000000 --size 10 --render pixels --eval-every 25000 --eval-episodes 20"
