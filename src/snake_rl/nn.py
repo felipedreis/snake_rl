@@ -182,7 +182,41 @@ class ConvNet:
 
 
 
-class Adam:
+class Optimizer:
+    """Shared part of the optimizers: global-norm gradient clipping, the step loop, and the `last` telemetry.
+
+    Subclasses implement `_update(i, g) -> u`, the step for parameter i given its (clipped) gradient g; step() then
+    does p -= u. self.t counts steps and is already incremented when _update runs.
+    """
+
+    def __init__(self, params, lr, clip=10.0):
+        # p: the arrays to update (updated in place, so the network sees the change).
+        # lr: learning rate (step size). clip: max global gradient norm (see step()).
+        self.p, self.lr, self.clip = params, lr, clip
+        self.t = 0  # number of steps taken so far
+
+    def _update(self, i, g):
+        raise NotImplementedError
+
+    def step(self, grads):
+        # Global-norm clipping: if all gradients together are longer than `clip`, shrink them
+        # all by the same factor. Protects against one bad minibatch causing a huge update.
+        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
+        scale = min(1.0, self.clip / (norm + 1e-12))
+        self.t += 1
+        step2 = par2 = 0.0
+        for i, (p, g) in enumerate(zip(self.p, grads)):
+            u = self._update(i, g * scale)
+            step2 += (u ** 2).sum()
+            par2 += (p ** 2).sum()
+            p -= u
+        # Telemetry for this step: gradient norm before clipping, whether clipping kicked in, and how big the step
+        # was relative to the weights (~1e-3 is the usual healthy range; much larger = thrashing, much smaller = stalled).
+        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
+                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+
+
+class Adam(Optimizer):
     """Adam optimizer (Kingma & Ba, 2015): gradient descent with a per-parameter step size.
 
     Plain gradient descent does p -= lr * grad. Adam instead keeps, for every parameter,
@@ -193,41 +227,24 @@ class Adam:
     """
 
     def __init__(self, params, lr, clip=10.0, b1=0.9, b2=0.999, eps=1e-8):
-        # p: the arrays to update (updated in place, so the network sees the change).
-        # lr: learning rate (step size). clip: max global gradient norm (see step()).
         # b1, b2: decay rates of the two running averages. eps: avoids division by zero.
-        self.p, self.lr, self.clip, self.b1, self.b2, self.eps = params, lr, clip, b1, b2, eps
+        super().__init__(params, lr, clip)
+        self.b1, self.b2, self.eps = b1, b2, eps
         self.m = [np.zeros_like(x) for x in params]  # running mean of gradients, per parameter
         self.v = [np.zeros_like(x) for x in params]  # running mean of squared gradients
-        self.t = 0                                   # number of steps taken so far
 
-    def step(self, grads):
-        # Global-norm clipping: if all gradients together are longer than `clip`, shrink them
-        # all by the same factor. Protects against one bad minibatch causing a huge update.
-        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
-        scale = min(1.0, self.clip / (norm + 1e-12))
-        self.t += 1
-        step2 = par2 = 0.0
-        for p, g, m, v in zip(self.p, grads, self.m, self.v):
-            g = g * scale
-            m[...] = self.b1 * m + (1 - self.b1) * g
-            v[...] = self.b2 * v + (1 - self.b2) * g * g
-            # m and v start at 0, so early on they underestimate; dividing by (1 - b^t) corrects that.
-            mh = m / (1 - self.b1 ** self.t)
-            vh = v / (1 - self.b2 ** self.t)
-            u = self.lr * mh / (np.sqrt(vh) + self.eps)
-            step2 += (u ** 2).sum()
-            par2 += (p ** 2).sum()
-            p -= u
-        # Telemetry for this step: gradient norm before clipping, whether clipping kicked in, and how big the step
-        # was relative to the weights (~1e-3 is the usual healthy range; much larger = thrashing, much smaller = stalled).
-        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
-                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+    def _update(self, i, g):
+        m, v = self.m[i], self.v[i]
+        m[...] = self.b1 * m + (1 - self.b1) * g
+        v[...] = self.b2 * v + (1 - self.b2) * g * g
+        # m and v start at 0, so early on they underestimate; dividing by (1 - b^t) corrects that.
+        mh = m / (1 - self.b1 ** self.t)
+        vh = v / (1 - self.b2 ** self.t)
+        return self.lr * mh / (np.sqrt(vh) + self.eps)
 
 
-class RMSProp:
-    """RMSProp (Tieleman & Hinton, 2012), the optimizer of the DQN and NEC papers, with the same global-norm clipping
-    and the same `last` telemetry as Adam.
+class RMSProp(Optimizer):
+    """RMSProp (Tieleman & Hinton, 2012), the optimizer of the DQN and NEC papers.
 
     Divides each gradient by a running RMS of its recent values: v <- rho v + (1 - rho) g^2, p <- p - lr g / (sqrt(v) + eps).
     Unlike Adam there is no momentum and no bias correction, and the large eps (NEC paper family: rho 0.95, eps 1e-2)
@@ -236,24 +253,14 @@ class RMSProp:
     """
 
     def __init__(self, params, lr, clip=10.0, rho=0.95, eps=1e-2):
-        self.p, self.lr, self.clip, self.rho, self.eps = params, lr, clip, rho, eps
+        super().__init__(params, lr, clip)
+        self.rho, self.eps = rho, eps
         self.v = [np.zeros_like(x) for x in params]
-        self.t = 0
 
-    def step(self, grads):
-        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
-        scale = min(1.0, self.clip / (norm + 1e-12))
-        self.t += 1
-        step2 = par2 = 0.0
-        for p, g, v in zip(self.p, grads, self.v):
-            g = g * scale
-            v[...] = self.rho * v + (1 - self.rho) * g * g
-            u = self.lr * g / (np.sqrt(v) + self.eps)
-            step2 += (u ** 2).sum()
-            par2 += (p ** 2).sum()
-            p -= u
-        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
-                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+    def _update(self, i, g):
+        v = self.v[i]
+        v[...] = self.rho * v + (1 - self.rho) * g * g
+        return self.lr * g / (np.sqrt(v) + self.eps)
 
 
 OPTIMIZERS = {"adam": Adam, "rmsprop": RMSProp}
