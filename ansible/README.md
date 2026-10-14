@@ -12,8 +12,11 @@ ansible-playbook -i inventories/ccad submit.yml  -e spec=smoke       # one SLURM
 ansible-playbook -i inventories/ccad collect.yml -e spec=smoke       # status + rsync results into results/ (safe to repeat)
 ```
 
-A spec (`experiments/<name>.yml`) lists `name`, `time`, `mem`, `max_parallel`, `results_dir` and `jobs`, one `snake-run` argument line per
-array task (no `--results`; the template adds it). Each task runs on one CPU with one BLAS thread and writes `done/<n>` with its exit code.
+A spec (`experiments/<name>.yml`) lists `name`, `time`, `mem`, `max_parallel`, `results_dir` and `jobs`, one argument line per
+array task (no `--results`; the template adds it). Optional keys: `command` (the console script each line is passed to, default
+`snake-run`; e.g. `pacman-run`), and `ccad_partition` / `ccad_qos` to leave the default `short` partition (1 day). Per-user limits seen
+on 2026-10-13: `normal` (`normal_qos`) 3 days and 96 CPUs, `extended` (`extended_qos`) 21 days and 48 CPUs. After the code gains a
+console script, re-run `provision.yml` so the cluster venv installs it. Each task runs on one CPU with one BLAS thread and writes `done/<n>` with its exit code.
 Compute nodes have no internet, so the code is rsynced from this machine and the venv is built on the login node. Logs are in
 `~/snake/runs/<name>/logs/` on the cluster.
 

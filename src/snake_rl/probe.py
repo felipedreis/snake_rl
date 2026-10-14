@@ -31,6 +31,7 @@ from collections import deque
 import numpy as np
 
 from snake_rl.env import Snake
+from snake_rl.frames import scale
 
 
 def _dist_from(env, src, blocked):
@@ -57,7 +58,7 @@ def _probe_obs(env, body, d):
     """Observation of a probe state. On the pixel render the frame stack shows the snake having moved straight in: the
     older frames have it shifted back along its heading as far as the board allows, as a real mid-episode stack does.
     Four identical frames would be a snake that never moves, which the agent never sees in training. Applies to any frame stack."""
-    if env.frame_stack == 1 and not env.pixels:
+    if not env.pixels:
         return env.static_obs()
     dr, dc = Snake.DIRS[d]
     free = lambda k: all(0 <= r - k * dr < env.n and 0 <= c - k * dc < env.n and not env.walls[r - k * dr, c - k * dc]
@@ -69,18 +70,18 @@ def _probe_obs(env, body, d):
     for k in range(env.frame_stack - 1, -1, -1):  # oldest first; a short run-up repeats its first frame
         k = min(k, kmax)
         env.body = deque((r - k * dr, c - k * dc) for r, c in body)
-        frames.append(env._one())
+        frames.append(env._frame())
     env.body = now
-    return env._stack(frames)
+    return scale(frames)
 
 
 def make_probe_set(size=25, map="rooms", bonus=0.0, n_configs=150, radius=2, length=3, seed=0, render="grid",
-                   frame_stack=None, wall_scale=1.0, actions="relative", compact=False):
+                   frame_stack=None, compact=False):
     """Returns dict(X obs rows, group config id, offset class id, good (rows, n_actions) bool, offsets list, dist).
 
     dist: walkable steps from the head to the food (body and walls block), one per row. compact=True stores pixel-render
     observations as uint8 gray levels (exact: the render only produces k/255), for large sets."""
-    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack, wall_scale=wall_scale, actions=actions)
+    env = Snake(size=size, map=map, bonus=bonus, render=render, frame_stack=frame_stack)
     env.reset()
     rng = np.random.default_rng(seed)
     # Every (head cell, heading) whose straight body fits, in a fixed shuffled order; take the first n_configs

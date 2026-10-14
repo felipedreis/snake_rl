@@ -5,10 +5,7 @@ import numpy as np
 class KeyValueMemory:
     """Storage and brute-force p-NN. Subclasses define their own lookup and write rules."""
 
-    def __init__(self, capacity, dim, p, delta, obs_dim=None):
-        # obs[i]: the raw observation that produced keys[i]. Only kept for nec_refresh, so keys can be
-        # recomputed with the current encoder; None otherwise (it costs a lot of memory).
-        self.obs = np.zeros((capacity, obs_dim)) if obs_dim else None
+    def __init__(self, capacity, dim, p, delta):
         # Counters for diagnostics(): how writes were handled.
         self.stats = {"appends": 0, "exact_updates": 0, "evictions": 0}
         self.keys = np.zeros((capacity, dim))       # keys[i]: embedding h of a remembered situation

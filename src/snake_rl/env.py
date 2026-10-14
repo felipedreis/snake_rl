@@ -1,10 +1,10 @@
 """Snake environment with grid observations, optional obstacle maps and Nokia-style bonus food.
 
 Observation: binary/float channels over an n x n grid, flattened (see `obs_shape`):
-  head, body, food, [obstacle if map != "open"], [bonus if bonus > 0], D distractor channels.
+  head, body, food, [obstacle if map != "open"], [bonus if bonus > 0].
 The bonus channel holds the remaining lifetime fraction (1 -> 0) at the bonus food's cell, so the
 agent can see how long the detour is still worth it.
-Actions (relative): 0 = straight, 1 = turn right, 2 = turn left.
+Actions (absolute, as an Atari joystick): 0 = up, 1 = right, 2 = down, 3 = left; a reversal keeps going straight.
 Reward: +1 food, +`bonus` bonus food, -1 death, 0 otherwise. `score` accumulates the food rewards.
 
 Maps (obstacles are lethal, food never spawns on them; the free area is always connected):
@@ -17,9 +17,6 @@ Bonus food (Nokia style): after every `bonus_every` regular foods a bonus pellet
 random free cell for `bonus_life` steps (default 2n), then vanishes. It is worth `bonus` points
 and grows the snake like a regular food, so greedy chasing makes the snake long and risky.
 
-Distractors: `distractors` extra channels of i.i.d. Bernoulli(noise_p) pixels, resampled
-every step. They carry no information about value, but dominate raw-space distances,
-so nearest neighbours in observation space become largely random.
 Food distance (a curriculum aid, off by default): with `food_radius` = r, regular food is drawn only from
 free cells within r walkable steps of the head (shortest path around walls and the body), falling back to
 any free cell if none is that close. run.py can grow r during training (`--food-curriculum`). With
@@ -33,20 +30,18 @@ grayscale image (each cell a (84 // n)-pixel square, centred, the margin filled 
 the last `frame_stack` (default 4) such frames, as DQN and NEC see Atari: obs_shape = (4, 84, 84), values k/255. Gray levels
 (of 255): empty 0, wall 60, body 110, food 160, bonus 200-240 (brighter = more lifetime left), head 255. There is no
 action repeat and no max over frames (nothing flickers). The stack starts as copies of the first frame of an episode.
-`static_obs()` gives the stack for the current state alone (probes build states by hand).
-Two ablation options, both off by default: `frame_stack=K` also stacks the last K grid observations (channels concatenated,
-obs_shape = (K * channels, n, n)), and `wall_scale` multiplies the walls' value (grid channel, or the pixel gray level
-60 * wall_scale, clipped to 255); 0 hides the walls from the agent (they still kill).
+`static_obs()` gives the stack for the current state alone (probes build states by hand). The grid observation is never
+stacked.
 
-With the defaults (map="open", bonus=0, render="grid") the env is bit-for-bit the original one, RNG draws included.
+Options that are off (map="open", bonus=0, no food radius) draw no random numbers, so they cannot shift the game's RNG.
 """
 from collections import deque
 import numpy as np
 
+from snake_rl.frames import PIXELS, FrameStack
+
 MAPS = ("open", "pillars", "walls", "rooms")
 RENDERS = ("grid", "pixels")
-ACTION_MODES = ("relative", "absolute")
-PIXELS = 84  # side of the pixel render, as in DQN's preprocessing
 # Gray level (0-255) of each thing in the pixel render; all distinct, and bonus 200-240 stays clear of the rest.
 GRAY = dict(wall=60, body=110, food=160, bonus=200, bonus_span=40, head=255)
 
@@ -74,6 +69,13 @@ def make_walls(name, n):
     return w
 
 
+def check_absolute(settings, source):
+    """Readers of checkpoints: only absolute actions exist now. Runs from before that option (no "actions" key) and
+    relative-action runs need the code at the `pre-cleanup` git tag."""
+    if settings.get("actions", "relative") != "absolute":
+        raise ValueError(f"{source}: a relative-action run; check out the pre-cleanup tag to use it")
+
+
 def _connected(free):
     cells = np.argwhere(free)
     seen, todo = {tuple(cells[0])}, [tuple(cells[0])]
@@ -90,24 +92,21 @@ def _connected(free):
 class Snake:
     DIRS = [(-1, 0), (0, 1), (1, 0), (0, -1)]  # up, right, down, left
 
-    def __init__(self, size=7, max_idle=None, seed=0, distractors=0, noise_p=0.5,
+    def __init__(self, size=7, max_idle=None, seed=0,
                  map="open", bonus=0.0, bonus_every=4, bonus_life=None, food_radius=None, relocate_food=False,
-                 render="grid", frame_stack=None, wall_scale=1.0, actions="relative"):
-        if actions not in ACTION_MODES:
-            raise ValueError(f"unknown actions {actions!r}; choose from {ACTION_MODES}")
+                 render="grid", frame_stack=None):
         if render not in RENDERS:
             raise ValueError(f"unknown render {render!r}; choose from {RENDERS}")
-        if render == "pixels" and (distractors or size > PIXELS):
-            raise ValueError("render='pixels' needs distractors=0 and size <= 84")
+        if render == "pixels" and size > PIXELS:
+            raise ValueError("render='pixels' needs size <= 84")
+        if render == "grid" and frame_stack not in (None, 1):
+            raise ValueError("only the pixel render stacks frames")
         fs = frame_stack or (4 if render == "pixels" else 1)  # pixels: DQN's 4; grid: 1 = a single observation
-        if fs > 1 and distractors:
-            raise ValueError("a frame stack needs distractors=0")
         self.n = size
-        self.render_mode, self.frame_stack, self.wall_scale = render, fs, float(wall_scale)
+        self.render_mode, self.frame_stack = render, fs
         self.pixels = render == "pixels"
         self.cell = PIXELS // size if self.pixels else 0  # pixels per board cell
-        self._frames = deque(maxlen=fs)  # the last `frame_stack` frames (only used when stacking)
-        self.D, self.noise_p = distractors, noise_p
+        self.stack = FrameStack(fs)  # the last `frame_stack` frames (pixel render)
         self.rng = np.random.default_rng(seed)
         self.max_idle = max_idle or 2 * size * size
         self.map, self.bonus_r, self.bonus_every = map, float(bonus), bonus_every
@@ -121,21 +120,17 @@ class Snake:
         start = [(c, c), (c, c - 1), (c, c + 1)]  # two body cells + the one straight ahead
         if any(self.walls[p] for p in start) or not _connected(~self.walls):
             raise ValueError(f"map {map!r} does not fit a {size}x{size} board")
-        self.actions = actions
-        self.n_actions = 3 if actions == "relative" else 4  # absolute: up, right, down, left
-        self.channels = 3 + bool(self.wall_set) + (self.bonus_r > 0) + distractors
+        self.n_actions = 4  # up, right, down, left
+        self.channels = 3 + bool(self.wall_set) + (self.bonus_r > 0)
         self.obs_shape = (self.channels, size, size)
         if self.pixels:
             self.obs_shape = (fs, PIXELS, PIXELS)
-        elif fs > 1:
-            self.obs_shape = (self.channels * fs, size, size)  # the last fs grid observations, channels concatenated
         self.obs_dim = int(np.prod(self.obs_shape))
 
-    def heading_after(self, d, a):
-        """Heading after action `a` from heading `d`. Relative: straight / right / left. Absolute: the direction
-        `a` itself (index into DIRS); a reversal keeps going straight, as a joystick against the snake does."""
-        if self.actions == "relative":
-            return (d + (0, 1, -1)[a]) % 4
+    @staticmethod
+    def heading_after(d, a):
+        """Heading after action `a` from heading `d`: the direction `a` itself (index into DIRS); a reversal keeps going
+        straight, as a joystick against the snake does."""
         return d if a == (d + 2) % 4 else a
 
     def reset(self):
@@ -146,7 +141,7 @@ class Snake:
         self.score = 0
         self.foods = 0
         self.bonus_pos, self.bonus_left = None, 0
-        self._frames.clear()
+        self.stack.reset()
         self._place_food()
         return self._obs()
 
@@ -190,7 +185,7 @@ class Snake:
     def _frame(self):
         """The current board as an 84x84 uint8 image (pixel render)."""
         g = np.zeros((self.n, self.n), np.uint8)
-        wall = int(round(min(255.0, GRAY["wall"] * self.wall_scale)))  # wall_scale 1 = the default level
+        wall = GRAY["wall"]
         g[self.walls] = wall
         for (r, c) in list(self.body)[1:]:
             g[r, c] = GRAY["body"]
@@ -205,35 +200,19 @@ class Snake:
         img[off:off + side, off:off + side] = np.repeat(np.repeat(g, self.cell, 0), self.cell, 1)
         return img
 
-    @staticmethod
-    def _scale(frames):
-        return (np.stack(frames).astype(np.float32) / np.float32(255)).ravel()
-
-    def _one(self):
-        """The current state as a single frame: the gray image (pixels) or the flat channel grid."""
-        return self._frame() if self.pixels else self._grid_obs()
-
-    def _stack(self, frames):
-        return self._scale(frames) if self.pixels else np.concatenate(frames)
-
     def static_obs(self):
         """Observation of the current state as if it had always been so (the frame stack is not touched)."""
-        if self.frame_stack == 1 and not self.pixels:
-            return self._obs()
-        return self._stack([self._one()] * self.frame_stack)
+        if not self.pixels:
+            return self._grid_obs()
+        return self.stack.static(self._frame())
 
     def _obs(self):
-        if self.frame_stack == 1 and not self.pixels:
+        if not self.pixels:
             return self._grid_obs()
-        f = self._one()
-        if not self._frames:
-            self._frames.extend([f] * self.frame_stack)
-        else:
-            self._frames.append(f)
-        return self._stack(list(self._frames))
+        return self.stack.push(self._frame())
 
     def _grid_obs(self):
-        o = np.zeros((self.channels - self.D, self.n, self.n), np.float32)
+        o = np.zeros((self.channels, self.n, self.n), np.float32)
         hr, hc = self.body[0]
         o[0, hr, hc] = 1.0
         for (r, c) in list(self.body)[1:]:
@@ -242,14 +221,11 @@ class Snake:
             o[2, self.food[0], self.food[1]] = 1.0
         k = 3
         if self.wall_set:
-            o[k] = self.walls if self.wall_scale == 1.0 else self.walls * self.wall_scale
+            o[k] = self.walls
             k += 1
         if self.bonus_r > 0:
             if self.bonus_pos is not None:
                 o[k, self.bonus_pos[0], self.bonus_pos[1]] = self.bonus_left / self.bonus_life
-        if self.D:
-            noise = (self.rng.random((self.D, self.n, self.n)) < self.noise_p).astype(np.float32)
-            o = np.concatenate([o, noise])
         return o.ravel()
 
     def render(self):

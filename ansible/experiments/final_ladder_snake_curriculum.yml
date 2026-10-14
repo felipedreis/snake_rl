@@ -1,0 +1,43 @@
+# Pre-registered in docs/experiments/final_ladder/PROTOCOL.md, revision 2 (frozen; hashes in FROZEN.sha256). Snake with the food curriculum:
+# food within 2 walkable steps of the head until step 50k, growing to 2n = 20 by 150k, then anywhere; relocation on. Evaluation always uses the real game.
+# Fast arms (DQN, N-step DQN, MFEC) on 'normal'. 16 at once so that, with final_ladder_snake and final_ladder_pacman (40 each), the 96-CPU limit holds.
+name: final_ladder_snake_curriculum
+command: snake-run
+ccad_partition: normal
+ccad_qos: normal_qos
+time: "3-00:00:00"
+mem: 10G
+max_parallel: 16
+results_dir: exp_final_ladder
+pull_agents: true
+jobs:
+  - "dqn 21 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 22 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 23 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 24 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 25 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 26 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 27 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 28 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 29 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn 30 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 21 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 22 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 23 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 24 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 25 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 26 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 27 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 28 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 29 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 30 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "mfec 21 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 22 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 23 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 24 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 25 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 26 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 27 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 28 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 29 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"
+  - "mfec 30 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000"

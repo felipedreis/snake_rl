@@ -21,7 +21,7 @@ agent-step frames stacked, flat float32 k/255, obs_shape = (4, 84, 84). Gray lev
 from collections import deque
 import numpy as np
 
-from snake_rl.env import PIXELS
+from snake_rl.frames import PIXELS, FrameStack
 
 # '#' wall, '.' pellet, 'o' power pellet, 'P' Pac-Man start, 'G' ghost start (the house, open above and below).
 MAZE = [
@@ -52,12 +52,13 @@ POINTS = dict(pellet=10, power=50, ghost=200)
 
 class MsPacman:
     DIRS = DIRS
+    SIZE = len(MAZE)  # the maze is SIZE x SIZE cells
 
     def __init__(self, seed=0, frame_skip=4, frame_stack=None, max_idle=None, reward_units="small"):
         if reward_units not in REWARDS:
             raise ValueError(f"unknown reward_units {reward_units!r}; choose from {sorted(REWARDS)}")
         self.reward_units, self.R = reward_units, REWARDS[reward_units]
-        self.n = len(MAZE)
+        self.n = self.SIZE
         if PIXELS % self.n:
             raise ValueError("the maze side must divide 84")
         self.cell = PIXELS // self.n
@@ -85,7 +86,7 @@ class MsPacman:
             o = (self.cell - side) // 2
             m[o:o + side, o:o + side] = 1
             self._dot[k] = m
-        self._frames = deque(maxlen=self.frame_stack)
+        self.stack = FrameStack(self.frame_stack)
 
     def _all_distances(self):
         """Shortest walking distance between every pair of open cells."""
@@ -109,7 +110,7 @@ class MsPacman:
         self.left = int(self.pellets.sum() + self.power.sum())
         self.scared = 0
         self.tick, self.idle, self.score, self.foods = 0, 0, 0, 0
-        self._frames.clear()
+        self.stack.reset()
         return self._obs()
 
     def _ghost_move(self, i):
@@ -198,21 +199,12 @@ class MsPacman:
         img[m] = up(chars)[m]
         return img
 
-    @staticmethod
-    def _scale(frames):
-        return (np.stack(frames).astype(np.float32) / np.float32(255)).ravel()
-
     def _obs(self):
-        f = self._frame()
-        if not self._frames:
-            self._frames.extend([f] * self.frame_stack)
-        else:
-            self._frames.append(f)
-        return self._scale(list(self._frames))
+        return self.stack.push(self._frame())
 
     def static_obs(self):
         """Observation of the current state as if it had always been so (the frame stack is not touched)."""
-        return self._scale([self._frame()] * self.frame_stack)
+        return self.stack.static(self._frame())
 
     def render(self):
         """ASCII picture: @ Pac-Man, G ghost, g scared ghost, . pellet, o power pellet, # wall."""
