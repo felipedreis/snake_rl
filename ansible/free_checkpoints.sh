@@ -14,9 +14,12 @@ DRY=0; [ "${1:-}" = "--dry-run" ] && { DRY=1; shift; }
 REPO=$(cd "$(dirname "$0")/.." && git rev-parse --path-format=absolute --git-common-dir | xargs dirname)
 USER_ID=${CCAD_USER:-$(grep -h '^CCAD_USERNAME=' "$REPO/.env.local" | cut -d= -f2)}
 HOST=$USER_ID@login.ccad.cefetmg.br
-SSH="ssh -o BatchMode=yes -o ConnectTimeout=20"
+SSH="ssh -n -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"   # -n: ssh must not read the loop's stdin (the file list)
+RSH="ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"       # rsync's transport needs stdin, so no -n here
 SPECS=("$@")
-[ ${#SPECS[@]} -eq 0 ] && read -ra SPECS <<< "$($SSH $HOST 'ls $HOME/snake/runs' 2>/dev/null)"
+if [ ${#SPECS[@]} -eq 0 ]; then   # bash 3.2 on macOS has no mapfile
+  while read -r name; do SPECS+=("$name"); done < <($SSH $HOST 'ls $HOME/snake/runs' 2>/dev/null)
+fi
 moved=0; bytes=0; kept=0
 for spec in "${SPECS[@]}"; do
   # "<size> <path relative to results/>" for every finished checkpoint of this spec
@@ -28,7 +31,7 @@ for spec in "${SPECS[@]}"; do
     if [ $DRY = 1 ]; then echo "would move $spec/$rel ($((size / 1000000)) MB)"; continue; fi
     mkdir -p "$(dirname "$dest")"
     if [ ! -f "$dest" ] || [ "$(stat -f %z "$dest")" != "$size" ]; then
-      rsync -a --partial -e "$SSH" "$HOST:snake/runs/$spec/results/$rel" "$dest" 2>/dev/null
+      rsync -a -z --compress-level=1 --partial -e "$RSH" "$HOST:snake/runs/$spec/results/$rel" "$dest" 2>&1 | grep -v -E "post-quantum|store now|upgraded|openssh.com" | head -2
     fi
     if [ -f "$dest" ] && [ "$(stat -f %z "$dest")" = "$size" ]; then
       $SSH $HOST "rm -f \$HOME/snake/runs/$spec/results/$rel" && { moved=$((moved + 1)); bytes=$((bytes + size)); }
