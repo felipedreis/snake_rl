@@ -12,16 +12,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from snake_rl.agents import canonical
 from snake_rl.run import EPS_FLOOR
 
 # Legend names, also the plotting order. Agents not listed here are plotted after these, under their raw name.
 # Runs are grouped by (agent, eps_floor, eps_decay, food_curriculum, food_relocate, opt, lr); non-default settings are
 # appended to the label.
 LABELS = {"random": "Random policy", "dqn": "DQN (1-step)", "dqn_nstep": "DQN (N-step)", "mfec": "MFEC (random projection)",
-          "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)",
-          "nec_refresh": "NEC + key refresh", "nec_bonus": "NEC + density bonus",
-          "dqn_cnn": "DQN (1-step, CNN)", "dqn_nstep_cnn": "DQN (N-step, CNN)",
-          "ec_frozen_cnn": "Episodic, frozen CNN embedding", "nec_cnn": "NEC (CNN)"}
+          "ec_frozen": "Episodic, frozen embedding", "nec": "NEC (learned embedding)"}
 
 
 def label(agent, eps_floor, eps_decay=None, food_curriculum=None, food_relocate=False, opt="adam", lr=None, agent_kw=()):
@@ -49,7 +47,7 @@ def curve(episodes, edges, rate=False):
     return np.array(out)
 
 
-def main(DIR="results/d0", out_dir="figures"):
+def main(DIR="results/d0_abs", out_dir="figures"):
     files = sorted(glob.glob(f"{DIR}/*.json"))
     if not files:
         raise SystemExit(f"no results in {DIR}")
@@ -63,7 +61,7 @@ def main(DIR="results/d0", out_dir="figures"):
         d = json.load(open(f))
         if d["steps"] == STEPS:
             fc = d.get("food_curriculum")
-            key = (d["agent"], d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"), tuple(fc) if fc else None,
+            key = (canonical(d["agent"]), d.get("eps_floor", EPS_FLOOR), d.get("eps_decay"), tuple(fc) if fc else None,
                    d.get("food_relocate", False), d.get("opt", "adam"), d.get("lr"), tuple(sorted((d.get("agent_kw") or {}).items())))
             data.setdefault(key, []).append(
                 (curve(d["episodes"], edges), curve(d["episodes"], edges, True), d["wallclock_s"]))
@@ -110,7 +108,7 @@ def main(DIR="results/d0", out_dir="figures"):
 
 def cli():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("dir", nargs="?", default="results/d0")
+    ap.add_argument("dir", nargs="?", default="results/d0_abs")
     ap.add_argument("--out", default="figures", help="where to write the png")
     a = ap.parse_args()
     main(a.dir, a.out)

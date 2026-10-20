@@ -1,0 +1,32 @@
+# Pre-registered in docs/experiments/final_ladder/PROTOCOL.md, revision 2 (frozen; hashes in FROZEN.sha256). Snake with the food curriculum, memory arms.
+# 8 at once so that, with final_ladder_snake_memory and final_ladder_pacman_memory (20 each), the 48-CPU limit on 'extended' holds (about three waves).
+name: final_ladder_snake_curriculum_memory
+command: snake-run
+ccad_partition: extended
+ccad_qos: extended_qos
+time: "7-00:00:00"
+mem: 8G
+max_parallel: 8
+results_dir: exp_final_ladder
+pull_agents: true
+jobs:
+  - "ec_frozen 21 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 22 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 23 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 24 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 25 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 26 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 27 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 28 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 29 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "ec_frozen 30 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --agent-kw dnd_cap=500000"
+  - "nec 21 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 22 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 23 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 24 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 25 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 26 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 27 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 28 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 29 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
+  - "nec 30 1000000 --size 10 --render pixels --food-curriculum 2:50000:150000 --food-relocate --eval-every 25000 --eval-episodes 20 --probe-every 50000 --probe-far --save-every 500000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"

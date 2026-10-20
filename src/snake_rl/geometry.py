@@ -22,21 +22,19 @@ import argparse, json, os, pickle, time
 
 import numpy as np
 
-from snake_rl.env import Snake
+from snake_rl.boards import board_from_settings
 from snake_rl.probe import _as_float, _ego, _sqdist, make_probe_set, probe
 
 
 def load(path):
     with open(path, "rb") as f:
         ck = pickle.load(f)
-    board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0), render=ck.get("render", "grid"),
-                 frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0), actions=ck.get("actions", "relative"))
-    return ck, board
+    return ck, board_from_settings(ck, path)
 
 
 def rollout(agent, board, episodes, eps, seed, max_states):
     """States the agent visits (observation before each action) with the labels needed below; own env and rng streams."""
-    env, rng = Snake(seed=seed, **board), np.random.default_rng(seed + 1)
+    env, rng = board.make_env(seed), np.random.default_rng(seed + 1)  # food anywhere, as in evaluation
     saved, agent.rng = agent.rng, rng
     X, meta = [], []
     try:
@@ -134,11 +132,11 @@ def _sqdist_between(A, B):
 def analyse(path, episodes=20, eps=0.05, max_states=3000, seed=777):
     t0 = time.time()
     ck, board = load(path)
-    agent, n = ck["agent"], board["size"]
-    P = make_probe_set(n, board["map"], board["bonus"], render=board["render"], frame_stack=board["frame_stack"],
-                       wall_scale=board["wall_scale"], actions=board["actions"])
+    agent, n = ck["agent"], board.size
+    where = dict(size=n, map=board.map, bonus=board.bonus, render=board.render, frame_stack=board.frame_stack)
+    P = make_probe_set(**where)
     res = dict(checkpoint=os.path.basename(path), agent=ck["name"], seed=ck["seed"], t=ck["t"], opt=ck.get("opt"), lr=ck.get("lr"),
-               board=board, probe=probe(agent, P))
+               board=where, probe=probe(agent, P))
     Zp, Qp = agent.probe_embed(P["X"])
     res["qfood"] = qfood(Qp, P)
     res["action_purity"] = action_purity(Zp, P)

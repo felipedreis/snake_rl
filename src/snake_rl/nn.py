@@ -72,8 +72,6 @@ class MLP:
             p[...] = q
 
 
-# DQN's conv shape scaled to the grid (see ConvNet): 25x25 -> 25 -> 13 -> 7, then FC 512.
-DQN_CONVS, DQN_FC = [(32, 3, 1), (64, 3, 2), (64, 3, 2)], 512
 # DQN's own network (Mnih et al., 2015) on 84x84 frames, valid convolutions (padding 0): 84 -> 20 -> 9 -> 7, then FC 512.
 NATURE_CONVS, NATURE_FC = [(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], 512
 
@@ -81,24 +79,18 @@ NATURE_CONVS, NATURE_FC = [(32, 8, 4, 0), (64, 4, 2, 0), (64, 3, 1, 0)], 512
 class ConvNet:
     """Small CNN with manual backprop, same interface as MLP (flat batch in, params()/backward()).
 
-    obs_shape = (C, n, n). `convs` lists the conv layers, each either an int (output channels; k x k kernel, stride 1)
-    or a tuple (channels, kernel, stride[, padding]). Padding defaults to k//2 (zeros) and every conv has a ReLU, so
-    stride 1 keeps the map size ("same") and stride 2 roughly halves it; padding 0 gives "valid" convolutions.
-    The flattened feature map feeds the dense layers `fcs` (ReLU between, linear last).
-    [16, 32] is the original small net: stride 1 throughout, the map stays n x n. [(32,3,1), (64,3,2), (64,3,2)] with
-    fcs [512, ...] is DQN's shape (Mnih et al., 2015: 32 8x8/4, 64 4x4/2, 64 3x3/1, FC 512) scaled to the grid:
-    25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari. NATURE_CONVS is DQN's exact stack,
-    for the 84x84 pixel render: [(32,8,4,0), (64,4,2,0), (64,3,1,0)], 84 -> 20 -> 9 -> 7.
+    obs_shape = (C, n, n). `convs` lists the conv layers as (channels, kernel, stride, padding); every conv has a ReLU,
+    and padding 0 gives "valid" convolutions. The flattened feature map feeds the dense layers `fcs` (ReLU between,
+    linear last). NATURE_CONVS is DQN's exact stack (Mnih et al., 2015) for the 84x84 pixel render:
+    [(32,8,4,0), (64,4,2,0), (64,3,1,0)], 84 -> 20 -> 9 -> 7, then FC 512.
     Convolutions are im2col matmuls, channels-last internally.
     """
 
-    def __init__(self, obs_shape, convs, fcs, rng, k=3):
+    def __init__(self, obs_shape, convs, fcs, rng):
         C, n, _ = obs_shape
-        self.shape, self.k = (n, n, C), k
+        self.shape = (n, n, C)
         self.W, self.b, self.layers, self.pads, cin, h = [], [], [], [], C, n
-        for spec in convs:
-            cout, kk, st, *pd = (spec, k, 1) if isinstance(spec, int) else spec
-            pad = pd[0] if pd else kk // 2
+        for cout, kk, st, pad in convs:
             ho = (h + 2 * pad - kk) // st + 1
             if ho < 1:
                 raise ValueError(f"conv {kk}x{kk}/{st} does not fit a {h}x{h} map")
@@ -188,13 +180,43 @@ class ConvNet:
     def __getstate__(self):  # the im2col buffers of the last forward() are large and only needed by backward()
         return {k: v for k, v in self.__dict__.items() if k not in ("cache", "cols", "out")}
 
-    def __setstate__(self, d):
-        self.__dict__.update(d)
-        if "pads" not in d:  # checkpoints from before explicit padding: every conv was "same"
-            self.pads = [k // 2 for k, *_ in self.layers]
 
 
-class Adam:
+class Optimizer:
+    """Shared part of the optimizers: global-norm gradient clipping, the step loop, and the `last` telemetry.
+
+    Subclasses implement `_update(i, g) -> u`, the step for parameter i given its (clipped) gradient g; step() then
+    does p -= u. self.t counts steps and is already incremented when _update runs.
+    """
+
+    def __init__(self, params, lr, clip=10.0):
+        # p: the arrays to update (updated in place, so the network sees the change).
+        # lr: learning rate (step size). clip: max global gradient norm (see step()).
+        self.p, self.lr, self.clip = params, lr, clip
+        self.t = 0  # number of steps taken so far
+
+    def _update(self, i, g):
+        raise NotImplementedError
+
+    def step(self, grads):
+        # Global-norm clipping: if all gradients together are longer than `clip`, shrink them
+        # all by the same factor. Protects against one bad minibatch causing a huge update.
+        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
+        scale = min(1.0, self.clip / (norm + 1e-12))
+        self.t += 1
+        step2 = par2 = 0.0
+        for i, (p, g) in enumerate(zip(self.p, grads)):
+            u = self._update(i, g * scale)
+            step2 += (u ** 2).sum()
+            par2 += (p ** 2).sum()
+            p -= u
+        # Telemetry for this step: gradient norm before clipping, whether clipping kicked in, and how big the step
+        # was relative to the weights (~1e-3 is the usual healthy range; much larger = thrashing, much smaller = stalled).
+        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
+                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+
+
+class Adam(Optimizer):
     """Adam optimizer (Kingma & Ba, 2015): gradient descent with a per-parameter step size.
 
     Plain gradient descent does p -= lr * grad. Adam instead keeps, for every parameter,
@@ -205,41 +227,24 @@ class Adam:
     """
 
     def __init__(self, params, lr, clip=10.0, b1=0.9, b2=0.999, eps=1e-8):
-        # p: the arrays to update (updated in place, so the network sees the change).
-        # lr: learning rate (step size). clip: max global gradient norm (see step()).
         # b1, b2: decay rates of the two running averages. eps: avoids division by zero.
-        self.p, self.lr, self.clip, self.b1, self.b2, self.eps = params, lr, clip, b1, b2, eps
+        super().__init__(params, lr, clip)
+        self.b1, self.b2, self.eps = b1, b2, eps
         self.m = [np.zeros_like(x) for x in params]  # running mean of gradients, per parameter
         self.v = [np.zeros_like(x) for x in params]  # running mean of squared gradients
-        self.t = 0                                   # number of steps taken so far
 
-    def step(self, grads):
-        # Global-norm clipping: if all gradients together are longer than `clip`, shrink them
-        # all by the same factor. Protects against one bad minibatch causing a huge update.
-        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
-        scale = min(1.0, self.clip / (norm + 1e-12))
-        self.t += 1
-        step2 = par2 = 0.0
-        for p, g, m, v in zip(self.p, grads, self.m, self.v):
-            g = g * scale
-            m[...] = self.b1 * m + (1 - self.b1) * g
-            v[...] = self.b2 * v + (1 - self.b2) * g * g
-            # m and v start at 0, so early on they underestimate; dividing by (1 - b^t) corrects that.
-            mh = m / (1 - self.b1 ** self.t)
-            vh = v / (1 - self.b2 ** self.t)
-            u = self.lr * mh / (np.sqrt(vh) + self.eps)
-            step2 += (u ** 2).sum()
-            par2 += (p ** 2).sum()
-            p -= u
-        # Telemetry for this step: gradient norm before clipping, whether clipping kicked in, and how big the step
-        # was relative to the weights (~1e-3 is the usual healthy range; much larger = thrashing, much smaller = stalled).
-        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
-                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+    def _update(self, i, g):
+        m, v = self.m[i], self.v[i]
+        m[...] = self.b1 * m + (1 - self.b1) * g
+        v[...] = self.b2 * v + (1 - self.b2) * g * g
+        # m and v start at 0, so early on they underestimate; dividing by (1 - b^t) corrects that.
+        mh = m / (1 - self.b1 ** self.t)
+        vh = v / (1 - self.b2 ** self.t)
+        return self.lr * mh / (np.sqrt(vh) + self.eps)
 
 
-class RMSProp:
-    """RMSProp (Tieleman & Hinton, 2012), the optimizer of the DQN and NEC papers, with the same global-norm clipping
-    and the same `last` telemetry as Adam.
+class RMSProp(Optimizer):
+    """RMSProp (Tieleman & Hinton, 2012), the optimizer of the DQN and NEC papers.
 
     Divides each gradient by a running RMS of its recent values: v <- rho v + (1 - rho) g^2, p <- p - lr g / (sqrt(v) + eps).
     Unlike Adam there is no momentum and no bias correction, and the large eps (NEC paper family: rho 0.95, eps 1e-2)
@@ -248,24 +253,27 @@ class RMSProp:
     """
 
     def __init__(self, params, lr, clip=10.0, rho=0.95, eps=1e-2):
-        self.p, self.lr, self.clip, self.rho, self.eps = params, lr, clip, rho, eps
+        super().__init__(params, lr, clip)
+        self.rho, self.eps = rho, eps
         self.v = [np.zeros_like(x) for x in params]
-        self.t = 0
 
-    def step(self, grads):
-        norm = np.sqrt(sum((g ** 2).sum() for g in grads))
-        scale = min(1.0, self.clip / (norm + 1e-12))
-        self.t += 1
-        step2 = par2 = 0.0
-        for p, g, v in zip(self.p, grads, self.v):
-            g = g * scale
-            v[...] = self.rho * v + (1 - self.rho) * g * g
-            u = self.lr * g / (np.sqrt(v) + self.eps)
-            step2 += (u ** 2).sum()
-            par2 += (p ** 2).sum()
-            p -= u
-        self.last = dict(grad_norm=float(norm), clipped=float(scale < 1.0),
-                         update_ratio=float(np.sqrt(step2) / (np.sqrt(par2) + 1e-12)), param_norm=float(np.sqrt(par2)))
+    def _update(self, i, g):
+        v = self.v[i]
+        v[...] = self.rho * v + (1 - self.rho) * g * g
+        return self.lr * g / (np.sqrt(v) + self.eps)
+
+
+ENCODERS = ("mlp", "naturecnn")
+
+
+def make_net(kind, obs_dim, obs_shape, hidden, out_dim, rng):
+    """The network of an agent: "mlp" (flat observation -> the `hidden` ReLU layers -> out_dim) or "naturecnn" (DQN's
+    exact network on the (C, 84, 84) frame stack obs_shape -> FC 512 -> out_dim; `hidden` is not used)."""
+    if kind == "naturecnn":
+        return ConvNet(obs_shape, NATURE_CONVS, [NATURE_FC, out_dim], rng)
+    if kind == "mlp":
+        return MLP([obs_dim, *hidden, out_dim], rng)
+    raise ValueError(f"unknown encoder {kind!r}; choose from {ENCODERS}")
 
 
 OPTIMIZERS = {"adam": Adam, "rmsprop": RMSProp}

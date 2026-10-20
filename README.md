@@ -1,13 +1,15 @@
-# NEC on Snake — ablation ladder
+# Episodic control on Snake and Ms. Pac-Man
 
 **This study is closed (2026-10-12).** What it found, and why it stopped: [docs/STUDY_SUMMARY.md](docs/STUDY_SUMMARY.md).
 
-Pure-NumPy reproduction of Neural Episodic Control (Pritzel et al., 2017) on a 7x7 Snake,
-with hand-derived gradients through the DND.
+A pure-NumPy implementation of Neural Episodic Control (Pritzel et al., 2017), Model-Free Episodic Control
+(Blundell et al., 2016) and DQN (Mnih et al., 2015). The networks, the optimizers and every gradient are hand-written and
+gradient-checked, including the gradient through NEC's kernel-weighted kNN lookup. The agents are tested on two games:
+Snake (grid or Atari-style pixels) and a small Ms. Pac-Man.
 
-Agents: `dqn` (1-step), `dqn_nstep` (N=50), `ec_frozen` (NEC table, random frozen encoder,
-no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsilon schedule
-(1 -> 0.02 over 5k steps), gamma=0.99, MLP encoders, no tuning.
+**Old experiments:** the code was simplified after the study closed (relative actions, distractor channels, the grid
+CNNs, `nec_refresh` and `nec_bonus` were removed). Every experiment in `docs/experiments/` runs as written at the git
+tag `pre-cleanup`.
 
 ## Setup
 
@@ -16,20 +18,16 @@ no SGD — MFEC-like), `nec` (full). Setup: 40k env steps, 5 seeds, shared epsil
 
 ## Usage
 
-    snake-run nec 1 40000          # agent, seed, steps           -> results/d0/nec_s1.json
-    snake-run nec 1 40000 --distractors 4   # noise channels      -> results/d4/nec_s1.json
-    snake-run nec 1 40000 --size 10         # grid size           -> results/g10_d0/nec_s1.json
-    snake-run nec 1 40000 --map rooms --bonus 5   # obstacles + bonus food -> results/d0_rooms_b5/nec_s1.json
-    snake-plot results/d0          # -> figures/learning_curves_d0.png + tables on stdout
-    snake-plot results/d0_rooms_b5 # -> figures/learning_curves_d0_rooms_b5.png
-    snake-peek results/d0/nec_*.json
-    snake-train results/d0/nec_s1.json            # training curves: loss, TD error, Q vs target, grad norm, ...
-    snake-run dqn_cnn 1 40000 --save-agent        # also pickle the trained agent -> results/d0/dqn_cnn_s1.agent.pkl
-    snake-watch results/d0/dqn_cnn_s1.agent.pkl   # watch it play in the terminal (--gui for a window, --gif out.gif)
-    pytest
+    snake-run nec 1 40000                                  # agent, seed, steps -> results/d0_abs/nec_s1.json
+    snake-run nec 1 60000 --size 10 --render pixels        # 84x84 frames, DQN's network -> results/g10_d0_px_abs/
+    snake-run dqn 1 100000 --size 25 --map rooms --bonus 5 --food-curriculum 2:50000:80000 --food-relocate
+    pacman-run nec 1 100000 --reward-units atari --eval-every 10000   # -> results/pac_px_atari/nec_s1.json
+    snake-plot results/d0_abs                              # learning curves -> figures/, tables on stdout
+    snake-train results/d0_abs/nec_s1.json                 # training telemetry (loss, TD error, grad norm, ...)
+    snake-run dqn 1 40000 --save-agent && snake-watch results/d0_abs/dqn_s1.agent.pkl   # watch it play
+    pytest -m "not slow"                                   # fast tests; plain `pytest` adds the golden runs
 
-(`python -m snake_rl.run ...` etc. work too.) Every command prints its options with `--help`; the full list is in
-[Command reference](#command-reference) below.
+Every command prints its options with `--help`; the full list is in the [command reference](#command-reference).
 
 ## Results data
 
@@ -39,50 +37,53 @@ The raw results (run JSONs, training telemetry, saved agents) live on Hugging Fa
     hf download felipedreis/snake-rl-results --repo-type dataset --local-dir results
 
 The `.agent.pkl` files are Python pickles: only load them from a source you trust. `results/` and `*.agent.pkl` are in
-`.gitignore`; new runs still write there, and are not tracked.
+`.gitignore`. The readers (`snake-plot`, `snake-train`, `snake-watch`, the geometry tools) still read the old files.
+Old agent names such as `nec_naturecnn` are mapped to the current ones. Relative-action checkpoints need the
+`pre-cleanup` tag.
 
-## Layout
+## Agents
 
-    src/snake_rl/
-      env.py            Snake environment
-      nn.py             MLP with manual backprop, Adam
-      returns.py        N-step return accumulator
-      agents/           base.py (Agent interface), dqn.py, nec.py, mfec.py; __init__.py holds the registry
-      probe.py          representation probe (--probe-every): steering and food-offset separability
-      telemetry.py      per-update training statistics (loss, gradient norm, ...)
-      run.py plot.py peek.py trainplot.py (snake-train) watch.py (snake-watch)
-    tests/              gradient checks, N-step targets, smoke runs of every agent
-    results/            per-run JSON, results/d{D} (7x7) or results/g{size}_d{D}, plus _{map} / _b{R} if set
-    figures/            learning-curve PNGs and saved tables
-    logs/               stdout of past sweeps
-    docs/experiments/   pre-registered experiments: protocol, run script, analysis, report
+| Name | What it is |
+|---|---|
+| `random` | Uniform random actions: the floor. |
+| `dqn` | DQN: Huber loss, target network synced every 1,000 steps, replay 50k, Adam 5e-4. |
+| `dqn_nstep` | DQN with N-step returns (N = 50). |
+| `mfec` | MFEC: fixed random projection to 64-d keys, k = 11 neighbours, Monte Carlo returns with a max update. |
+| `ec_frozen` | NEC's memory with a random, frozen encoder (no gradient training). |
+| `nec` | NEC: per-action DNDs (exact kNN, p = 50, capacity 2e4), N = 50, encoder trained through the lookup. |
 
-New agents: implement `act`/`observe` (see `agents/base.py`), add a factory to `AGENTS` in
-`agents/__init__.py`, and optionally a legend name in `plot.LABELS`.
+**The network follows the observation, not the name.** On the grid, `dqn`, `dqn_nstep`, `ec_frozen` and `nec` use an
+MLP. On pixels (Snake with `--render pixels`, and Ms. Pac-Man) they use DQN's exact network: valid convolutions
+32 8x8/4, 64 4x4/2 and 64 3x3/1 (84 → 20 → 9 → 7), then FC 512 and the Q head or NEC's 32-d key. On pixels, replay
+stores the frames as uint8, which is exact.
 
-Known differences from the paper: MLP encoder by default (the `*_cnn` agents use a small CNN, see below, with 3x3 stride-1 convs rather than the Atari 8x8/4,4x4/2,3x3/1 stack; the `*_dqncnn` agents copy DQN's shape on the grid), exact brute-force kNN instead of
-kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per action.
+`--agent-kw KEY=VALUE` overrides any constructor setting, for example `target_every=4000`, `N=100` or
+`dnd_cap=100000`. `--opt rmsprop --lr F` swaps the optimizer.
 
-## Later additions
-- `--distractors D`, `--size n`: distractor channels, grid size (results/d{D} for 7x7, results/g{size}_d{D} otherwise).
-- `nec_refresh`: re-embeds all DND keys with the current encoder every 1000 steps (not in paper).
-- `nec_bonus`: density bonus beta*log(dbar_a / min_b dbar_b) when acting (not in paper).
-- `--eps-floor F`: final epsilon (default 0.02). A non-default floor is recorded as `eps_floor` in the JSON,
-  tagged in the filename (`nec_eps0.1_s1.json`) and in the plot label.
-- NEC runs log per-action DND diagnostics (appends, exact updates, evictions, value stats) every 6k steps.
-- `snake-peek <json...>`: per-seed curves in 6k-step bins + per-action write shares.
-- `mfec`: Model-Free Episodic Control (Blundell et al., 2016). Random Gaussian projection to 64-d keys, one
-  buffer per action, uniform mean over k=11 neighbours (stored value on exact match), and backward Monte Carlo
-  returns written at episode end with a max update. No SGD and no bootstrapping (truncated episodes are not
-  bootstrapped either). Capacity is 2e4 per action, as for the DND (the paper uses 1e6), and run.py's epsilon
-  schedule is used (the paper uses 0.005).
-- `random`: uniform random policy, a reference floor.
-- `docs/experiments/mfec_dqn_nec/`: pre-registered MFEC vs DQN vs NEC comparison (PROTOCOL.md, REPORT.md).
+**Known differences from the NEC paper** (deliberate): exact kNN instead of kd-trees, N = 50 instead of 100, DND
+capacity 2e4 instead of 5e5, Adam by default, a global-norm gradient clip of 10, and key size 32.
 
-## Richer env and CNN agents
-- `--map {open,pillars,walls,rooms}`: obstacle layouts (lethal walls, extra observation channel). The free area is always
-  connected and the start is always clear. `open` is the original env, bit-for-bit. The layouts on the default 7x7 grid
-  (`#` wall, `@` head, `o` body; they scale with the grid size):
+## Games
+
+**Snake** (`src/snake_rl/env.py`, run with `snake-run`):
+
+- **Actions:** absolute (up, right, down, left), as on an Atari joystick. A reversal keeps going straight.
+- **Rewards:** +1 for food, +R for bonus food, −1 for death.
+- **Episodes** are truncated after 2n² steps without eating, and truncation bootstraps.
+- **Observation:** with `--render grid` (the default), one n×n channel each for:
+  - the head;
+  - the body;
+  - the food;
+  - the walls (when there are obstacles);
+  - the bonus food's remaining lifetime (when bonus food is on).
+
+  With `--render pixels`, the observation is the last 4 frames of an 84x84 grayscale drawing of the board (each cell
+  is `84 // n` pixels), as DQN and NEC see Atari.
+
+The board options:
+
+- **`--map {open,pillars,walls,rooms}`:** a lethal obstacle layout. The free area is always connected. On 7×7
+  (`#` wall, `@` head, `o` body):
 
       pillars    walls      rooms
       .......    .......    ...#...
@@ -93,205 +94,140 @@ kd-trees, Adam/SGD instead of RMSProp, N=50 instead of 100, DND capacity 2e4 per
       .#...#.    ..#####    ...#...
       .......    .......    ...#...
 
-  Example: `snake-run dqn 1 40000 --size 10 --map walls` writes `results/g10_d0_walls/dqn_s1.json`. Map, bonus, grid size and
-  distractors all combine, and each combination gets its own results dir, so `snake-plot` never mixes them.
-- `--bonus R`: Nokia-style bonus food worth R points, appearing after every 4 regular foods for 2n steps. The
-  observation has an extra channel holding its remaining lifetime fraction. It grows the snake like normal food.
-  `score` in the results is the points collected (regular 1 + bonus R), so curves are not comparable with bonus-free runs.
-- Output goes to `results/d{D}_{map}_b{R}` (e.g. `results/d0_pillars_b5`); the JSON records `map` and `bonus`.
-- `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`: same agents with `nn.ConvNet` (conv 16, conv 32, FC 64, linear head;
-  hand-written im2col backprop, gradient-checked in tests). CNN runs are ~3-10x slower than their MLP counterparts.
-- `dqn_dqncnn`, `nec_dqncnn`: DQN's convolutional shape scaled to the grid (conv 32 3x3/1, conv 64 3x3/2, conv 64 3x3/2,
-  FC 512; 25x25 -> 25 -> 13 -> 7, the same 7x7 map DQN's convolutions leave on Atari). Known issue: on 25x25, NEC's
-  embedding diverges with either CNN encoder (see `docs/experiments/encoder_food_probe_g25/REPORT.md`, addendum).
-- `--render pixels` with `dqn_naturecnn`, `dqn_nstep_naturecnn`, `ec_frozen_naturecnn`, `nec_naturecnn`: the Atari-style
-  setting. The board is drawn as an 84x84 grayscale image (each cell `84 // n` pixels, e.g. 3 on 25x25, 12 on 7x7), and
-  the observation is the last 4 frames, as DQN and NEC see Atari (`obs_shape = (4, 84, 84)`; no action repeat, since
-  nothing flickers). The `*_naturecnn` agents use DQN's exact network, valid convolutions 32 8x8/4, 64 4x4/2, 64 3x3/1
-  (84 -> 20 -> 9 -> 7), FC 512, then the Q head (DQN) or the 32-d key (NEC). Replay stores frames as uint8 (exact).
-  Results go to `..._px` (e.g. `results/d0_px`). About 1.7M weights; a run costs a few times a `*_dqncnn` run.
-- `Snake.render()` prints the board as ASCII.
+- **`--bonus R`:** Nokia-style bonus food worth R points. It appears after every 4 regular foods and lasts 2n steps.
+  `score` is then counted in points.
+- **`--food-curriculum R[:H]:N` and `--food-relocate`:** training aids for large boards.
+  - The curriculum places food within R walkable steps of the head. R is held until step H, then grows to 2n by step N.
+    After that, food goes anywhere.
+  - Relocation places food again within r of the head when it has not been eaten for 2r + 5 steps.
+  - Evaluation always uses the real game.
 
-## Run options for exploration, evaluation and curricula
-- `--eps-decay N`: epsilon falls linearly from 1 to `--eps-floor` over N steps; `0` keeps it fixed at the floor
-  (DQN paper: `--eps-floor 0.1 --eps-decay 250000`; MFEC paper: `--eps-floor 0.005 --eps-decay 0`). Unset, the
-  original 5k-step schedule is used, bit-for-bit.
-- `--eval-every K [--eval-episodes M --eval-eps E]`: every K steps, play M episodes at epsilon E (default 0.05,
-  as in the DQN paper) on a separate env. Stored under `evaluations`; training is unchanged by it.
-- `--food-curriculum R:N` or `R:H:N`: regular food appears within R walkable steps of the head (around walls and
-  the body), the radius held at R until step H (default 0) and then growing linearly to 2n by step N; after that,
-  anywhere, as in the real game. `--food-relocate`: during the curriculum, food not eaten within 2r + 5 steps is
-  placed again within r of the head's current position, so an agent that wanders off still has food nearby. Food far away is
-  what large boards make hard: on 25x25 `rooms`, food starts on average ~13 steps from the head, and only 7% of
-  placements are within 5. Evaluation runs always place food anywhere.
+**Ms. Pac-Man** (`src/snake_rl/pacman.py`, run with `pacman-run`):
 
-      snake-run nec 1 1000000 --size 25 --map rooms --bonus 5 --food-curriculum 2:400000 --eval-every 10000
-      # -> results/g25_d0_rooms_b5/nec_fc2-400000_s1.json
+- **Maze and observation:** a fixed 14×14 maze with 103 pellets, 4 power pellets and 2 ghosts. The observation is an
+  84x84 grayscale 4-frame stack.
+- **Actions and timing:** 4 absolute actions, frame skip 4 (`--frame-skip`), one life.
+- **`--reward-units`:**
+  - `small` (the default): points / 100, and −1 for dying;
+  - `atari`: 10, 50 and 200 points, and nothing for dying.
+- **`--clip-reward`:** the agent learns from rewards clipped to [−1, 1], as the DQN paper's agent does. The logged
+  score stays raw.
 
-## Watching training and the agent
+## Measuring a run
 
-**Training curves.** Every agent that trains by gradient (DQN and NEC variants) logs window averages of its updates
-every 1,000 steps (`--train-log-every K`, `0` = off): loss, |TD error|, Q(s,a) and its target, gradient norm before
-clipping, share of clipped steps, step size relative to the weights, and dead ReLUs; NEC adds the distance to its
-memory neighbours and the largest kernel weight. They are stored under `train` in the result JSON and also written,
-one line per snapshot, to `<run>.train.jsonl` as the run goes, so a run can be inspected before it finishes.
+These are bookkeeping only: a run is bit-for-bit the same with them on or off.
 
-    snake-train results/d0/dqn_cnn_s1.json --out figures/train_dqn_cnn.png
-    snake-train results/d0/dqn_s*.json results/d0/nec_s*.json --smooth 5   # compare runs; one line per seed
-    snake-train results/d0/nec_s1.train.jsonl                              # a run still in progress
+- **Evaluation** (`--eval-every K`): plays `--eval-episodes` episodes at ε `--eval-eps` (0.05) on a separate env.
+  Stored under `evaluations`.
+- **Training telemetry** (`--train-log-every K`, default 1000): window means of the gradient updates. These are loss,
+  |TD error|, Q and its target, gradient norm, clipped share, update/weight ratio and dead ReLUs; NEC adds neighbour
+  distance and kernel peak.
+  - Stored under `train`, and streamed to `<stem>.train.jsonl` while the run goes.
+  - `snake-train` plots them, and the docstring of `trainplot.py` lists healthy values.
+- **Representation probe** (`--probe-every K [--probe-far]`, Snake only): runs on hand-built states with food 1–2 (or
+  up to 6) steps away. It reports greedy steering, and how well the embedding separates where the food is relative to
+  the head (`probe.py`).
+- **Embedding geometry of a checkpoint** (`snake-geometry`, `pacman-geometry`): neighbour purity on the agent's own
+  states, and NEC's memory coherence.
+- **Checkpoints** (`--save-agent`, `--save-every K`): pickle the agent without its replay buffer, plus the run's
+  settings. A checkpoint can act and be watched, but it cannot resume training.
 
-The PNG has one panel per quantity, and the terminal shows the latest values of each run. The docstring of
-`src/snake_rl/trainplot.py` lists what healthy values look like. Results from before this feature have no `train`
-field.
+## Layout
 
-**Watching the agent play.** `--save-agent` pickles the trained agent to `<run>.agent.pkl`, and `--save-every K`
-adds checkpoints `<run>.agent_t{K}.pkl` along the way. The replay buffer is left out, so a checkpoint can act but not
-resume training. `snake-watch` plays it on the board it was trained on:
+    src/snake_rl/
+      env.py pacman.py   the two games; frames.py the shared 84x84 frame stack
+      boards.py          the game side of a run: env, curriculum, results directory, recorded settings
+      run.py             the training loop, RunConfig, and the snake-run / pacman-run commands
+      nn.py              MLP, ConvNet (im2col, manual backprop), Adam and RMSProp, make_net
+      returns.py         N-step return accumulator
+      agents/            base.py (the Agent interface), dqn.py, nec.py, mfec.py, memory.py (kNN key/value store),
+                         replay.py (shared replay buffer), random_policy.py; __init__.py holds the registry
+      probe.py geometry.py geometry_pacman.py telemetry.py   measurements
+      plot.py peek.py trainplot.py watch.py                  readers and viewers
+    tests/               gradient checks, N-step targets, every agent on both renders, and golden runs (below)
+    docs/                the study summary, reports and pre-registered experiments
+    figures/ logs/       figures and stdout of past sweeps
 
-    snake-watch results/d0/dqn_cnn_s1.agent.pkl                  # terminal, greedy
-    snake-watch results/d0/dqn_cnn_s1.agent.pkl --gui            # matplotlib window
-    snake-watch results/d0/dqn_cnn_s1.agent.pkl --gif out.gif    # save an animation
-    snake-watch <checkpoint> --food-radius 2 --relocate          # with the training curriculum's food placement
-    snake-watch dqn --size 25 --map rooms --bonus 5              # an untrained agent, for comparison
+**Adding an agent:**
 
-The side panel shows the score, the Q-value the agent gives each action (straight, right, left) with the chosen one
-marked and, for NEC, how far the current situation is from its memories. Terminal keys: space pause, `+`/`-` speed,
-`n` next episode, `q` quit. Other options: `--episodes N`, `--eps E` (default 0, greedy), `--delay S`, `--seed K`.
-Watching never changes the checkpoint.
+1. Implement `act`/`observe` (see `agents/base.py`).
+2. Add a factory to `AGENTS` in `agents/__init__.py`.
+3. Optionally, add a legend name in `plot.LABELS`.
 
-**Representation probe.** `--probe-every K` scores the agent every K steps on a fixed set of states with food at most
-2 steps away: greedy steering accuracy and how well its embedding separates where the food is relative to the snake
-(`src/snake_rl/probe.py`). Stored under `probes` in the result JSON.
+**Golden runs:** `tests/test_golden.py` re-runs 13 short runs and checks they are identical to the ones recorded at
+`pre-cleanup`. The runs cover every agent, both renders, a board with a curriculum, RMSProp and Ms. Pac-Man. Identical
+means the same episodes, evaluations, probes, diagnostics and telemetry. The test also loads two old checkpoints.
 
-All of these are bookkeeping only: a run is bit-for-bit the same with them on or off.
-
+- A refactor must keep these runs green.
+- When a flag or name changes, update the command lines in `tests/golden_cases.py`, never the expected files.
+- Bit-for-bit reproducibility needs one BLAS thread. The tests set it themselves (`tests/conftest.py`). For runs,
+  set `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1`.
 
 ## Command reference
 
-All options are named except the few positional arguments listed first for each command. Defaults reproduce the
-original setup (7x7 open board, no bonus, the 5k-step epsilon schedule, food anywhere).
+### `snake-run AGENT SEED STEPS [options]` and `pacman-run AGENT SEED STEPS [options]`
 
-### `snake-run AGENT SEED STEPS [options]`
+Each command trains one agent for one seed and writes `<results>/<dir>/<stem>_s<SEED>.json`. The agent's RNG uses
+`SEED`, the env `SEED + 1000`, the evaluation env `SEED + 2000` and evaluation exploration `SEED + 3000`.
 
-Trains one agent for one seed and writes `<results>/<dir>/<stem>_s<SEED>.json` (see
-[Result file names](#result-file-names)).
-
-| Argument | Default | Meaning |
-|---|---|---|
-| `AGENT` | | One of `random`, `dqn`, `dqn_nstep`, `mfec`, `ec_frozen`, `nec`, `nec_refresh`, `nec_bonus`, `dqn_cnn`, `dqn_nstep_cnn`, `ec_frozen_cnn`, `nec_cnn`, `dqn_dqncnn`, `nec_dqncnn`, and for `--render pixels` `dqn_naturecnn`, `dqn_nstep_naturecnn`, `ec_frozen_naturecnn`, `nec_naturecnn` (see `agents/__init__.py`). |
-| `SEED` | | Agent RNG seed; the env uses `SEED + 1000`. |
-| `STEPS` | | Environment steps to train for. |
-
-**Board** (each combination gets its own results dir):
+**Snake board** (`snake-run` only; each combination gets its own directory):
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--size n` | 7 | Grid size n x n. Dir `d{D}` for 7, `g{n}_d{D}` otherwise. |
-| `--distractors D` | 0 | Extra observation channels of i.i.d. coin-flip noise, resampled every step. |
-| `--map M` | `open` | Obstacle layout: `open`, `pillars`, `walls`, `rooms`. Adds `_{M}` to the dir. |
-| `--bonus R` | 0 (off) | Timed bonus food worth R points after every 4 regular foods. Adds `_b{R}` to the dir; `score` becomes points. |
-| `--render {grid,pixels}` | `grid` | Observation: `grid` channels, or `pixels`, an 84x84 grayscale image with a 4-frame stack (use the `*_naturecnn` agents; no distractors). Adds `_px` to the dir. |
+| `--size n` | 7 | Grid size. Dir `d0` for 7, `g{n}_d0` otherwise. |
+| `--map M` | `open` | `open`, `pillars`, `walls`, `rooms`. Adds `_{M}`. |
+| `--bonus R` | 0 (off) | Timed bonus food worth R points. Adds `_b{R}`. |
+| `--render {grid,pixels}` | `grid` | Grid channels, or an 84x84 grayscale 4-frame stack. Pixels add `_px`. |
+| `--frame-stack K` | 4 | Pixels: frames per observation. Adds `_fs{K}` when not 4. |
+| `--food-curriculum R[:H]:N` | off | Food within R steps, held until H, grown to 2n by N. Tag `_fc{R}-{H}-{N}`. |
+| `--food-relocate` | off | Needs a curriculum. Tag `_reloc`. |
 
-**Exploration** (tagged in the file name when not default):
+Every Snake directory ends in `_abs`, for absolute actions, so new runs land next to the old absolute-action ones.
 
-| Option | Default | Meaning |
-|---|---|---|
-| `--eps-floor F` | 0.02 | Final epsilon. Tag `_eps{F}`. |
-| `--eps-decay N` | unset | Epsilon falls linearly from 1 to the floor over N steps; `0` = fixed at the floor. Unset: `max(F, 1 - t/5000)`. Tag `_epsd{N}`. |
-
-**Food curriculum** (training only; evaluation always places food anywhere):
+**Ms. Pac-Man board** (`pacman-run` only; directory `pac_px`):
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--food-curriculum R[:H]:N` | off | Food within R walkable steps of the head, held until step H (default 0), growing to 2n by step N, then anywhere. Tag `_fc{R}-{H}-{N}`. |
-| `--food-relocate` | off | Needs a curriculum. Food uneaten for 2r + 5 steps is placed again within r of the head. Tag `_reloc`. |
+| `--frame-skip K` | 4 | Game ticks per agent step. Adds `_sk{K}` when not 4. |
+| `--frame-stack K` | 4 | Frames per observation. Adds `_fs{K}` when not 4. |
+| `--reward-units {small,atari}` | `small` | Reward scale. Adds `_atari`. |
 
-**Measurement** (bookkeeping only: training is bit-for-bit the same with these on or off):
-
-| Option | Default | Meaning |
-|---|---|---|
-| `--eval-every K` | 0 (off) | Every K steps, play evaluation episodes on a separate env (seed `SEED + 2000`). Stored under `evaluations`. |
-| `--eval-episodes M` | 5 | Episodes per evaluation. |
-| `--eval-eps E` | 0.05 | Epsilon during evaluation. |
-| `--probe-every K` | 0 (off) | Every K steps, score steering and the embedding on a fixed probe set (`probe.py`). Stored under `probes`. Not with distractors. |
-| `--train-log-every K` | 1000 | Training telemetry window (loss, TD error, grad norm, ...) for gradient-trained agents, stored under `train` and streamed to `<stem>.train.jsonl`. `0` = off. |
-
-**Output:**
+**Run settings** (both commands):
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--results DIR` | `results` | Results root directory. |
-| `--save-agent` | off | Pickle the trained agent to `<stem>.agent.pkl`, with the run's settings (no replay buffer: it can act, not resume). |
-| `--save-every K` | 0 (off) | Also pickle a checkpoint `<stem>.agent_t{t}.pkl` every K steps. |
+| `--eps-floor F` | 0.02 | Final ε. Tag `_eps{F}`. |
+| `--eps-decay N` | unset | ε falls linearly from 1 to the floor over N steps (`0` = fixed at the floor). If unset, ε = `max(F, 1 - t/5000)`. Tag `_epsd{N}`. |
+| `--eval-every K` | 0 (off) | Evaluation episodes every K steps. |
+| `--eval-episodes M`, `--eval-eps E` | 5, 0.05 | Episodes per evaluation, and ε during evaluation. |
+| `--probe-every K`, `--probe-far` | off | Representation probe (Snake only). |
+| `--clip-reward` | off | The agent learns from rewards clipped to [−1, 1]. Pac-Man adds `_clip` to the dir. |
+| `--opt {adam,rmsprop}`, `--lr F` | adam, the agent's | Optimizer. Tags `_{opt}`, `_lr{F}`. |
+| `--agent-kw KEY=VALUE` | none | Constructor override, repeatable. Tag `_{KEY}{VALUE}`. |
+| `--train-log-every K` | 1000 | Telemetry window (`0` = off). |
+| `--save-agent`, `--save-every K` | off | Write `<stem>.agent.pkl` and `<stem>.agent_t{t}.pkl`. |
+| `--results DIR` | `results` | Results root. |
 
-### Result file names
+The file stem is the agent name followed by the tags in this order: optimizer, learning rate, ε floor, ε decay,
+curriculum, relocation, then the agent overrides. For example:
 
-A run's path is `<results>/<dir>/<stem>_s<SEED>.<ext>`. The **directory** names the board; the **file name** names
-the agent and every non-default training setting. Each part appears only when it differs from its default, in this order:
-
-| Part | Comes from | Default (no part) | Example |
-|---|---|---|---|
-| `<results>` | `--results DIR` | `results` | `results/exp_nec_ladder` |
-| `<dir>` start | `--distractors D`, `--size n` | | `d0` for 7x7, otherwise `g{n}_d{D}`, e.g. `g25_d0` |
-| `_{map}` | `--map M` | `open` | `_rooms` |
-| `_b{R}` | `--bonus R` | 0 | `_b5` |
-| `<stem>` start | `AGENT` | | `nec` |
-| `_eps{F}` | `--eps-floor F` | 0.02 | `_eps0.1` |
-| `_epsd{N}` | `--eps-decay N` | unset | `_epsd250000` |
-| `_fc{R}-{H}-{N}` | `--food-curriculum R[:H]:N` (as given: two or three numbers) | off | `_fc2-250000-600000` |
-| `_reloc` | `--food-relocate` | off | `_reloc` |
-| `_s{SEED}` | `SEED` | | `_s1` |
-
-For example, `snake-run dqn 1 1000000 --size 25 --map rooms --bonus 5 --eps-floor 0.1 --eps-decay 250000
---food-curriculum 2:250000:600000 --food-relocate` writes
-`results/g25_d0_rooms_b5/dqn_eps0.1_epsd250000_fc2-250000-600000_reloc_s1.json`.
-
-Files written next to it share the same prefix:
-
-| File | Written when |
-|---|---|
-| `<stem>_s<SEED>.json` | Always: episodes, settings, diagnostics, evaluations, probes, telemetry. |
-| `<stem>_s<SEED>.train.jsonl` | The agent trains by gradient and `--train-log-every` is not 0 (streamed during the run). |
-| `<stem>_s<SEED>.agent.pkl` | `--save-agent`: the agent at the end of training. |
-| `<stem>_s<SEED>.agent_t{t}.pkl` | `--save-every K`: a checkpoint at every step t that is a multiple of K. |
+    snake-run dqn 1 1000000 --size 25 --map rooms --bonus 5 --eps-floor 0.1 --eps-decay 250000 \
+        --food-curriculum 2:250000:600000 --food-relocate
+    # -> results/g25_d0_rooms_b5_abs/dqn_eps0.1_epsd250000_fc2-250000-600000_reloc_s1.json
 
 Settings that are not in the path (evaluation, probe and telemetry intervals) do not change training, so runs that
-differ only in them overwrite each other. `snake-plot` reads the settings from the JSON, not from the path.
+differ only in them overwrite each other.
 
-### `snake-plot [DIR] [--out DIR]`
+### Readers
 
-Learning curves (mean ± s.e. over seeds) for every run in one results dir, grouped by agent and run settings, plus
-tables on stdout. `DIR` defaults to `results/d0`; the PNG goes to `--out` (default `figures`) as
-`learning_curves_<dir>.png`. Runs whose `steps` differ from the first one are skipped with a message.
+| Command | What it does |
+|---|---|
+| `snake-plot [DIR] [--out DIR]` | Learning curves (mean ± s.e. over seeds) for one results directory, grouped by agent and run settings, plus tables. It skips runs whose `steps` differ from the first. |
+| `snake-peek JSON ...` | Per-seed score in 6k-step bins, and per-action memory write shares. |
+| `snake-train RUN ... [--out PNG] [--smooth K]` | Telemetry curves for result JSONs or live `.train.jsonl` files. |
+| `snake-watch AGENT [options]` | Plays a checkpoint on its own board (Snake or Ms. Pac-Man), or an untrained agent on `--size/--map/--bonus/--render`. Options: `--episodes`, `--eps` (default 0, greedy), `--delay`, `--seed`, `--food-radius R [--relocate]`, `--gui`, `--gif OUT [--max-frames N]`. |
+| `pacman-watch AGENT [options]` | The same for Ms. Pac-Man; `--frame-skip` applies to an untrained agent. |
+| `snake-geometry CKPT ... [--out DIR]`, `pacman-geometry CKPT ...` | Embedding geometry of checkpoints, one JSON each. |
 
-### `snake-peek JSON [JSON ...]`
-
-Per-seed mean score in 6k-step bins and, for agents that log DND diagnostics, the share of writes per action.
-
-### `snake-train RUN [RUN ...] [options]`
-
-Training telemetry curves for result JSONs or live `<stem>.train.jsonl` files (colour = run setting, one line per seed).
-
-| Option | Default | Meaning |
-|---|---|---|
-| `--out PNG` | `figures/training.png` | Output image. |
-| `--smooth K` | 1 | Moving average over K snapshots. |
-
-### `snake-watch AGENT [options]`
-
-Plays new episodes with a checkpoint (`.agent.pkl`) on the board it was trained on, or with an untrained agent given by
-name. It does not replay training episodes, and it never changes the checkpoint: the agent acts as in evaluation, with
-no learning.
-
-| Option | Default | Meaning |
-|---|---|---|
-| `--episodes N` | 5 | Episodes to play. |
-| `--eps E` | 0 | Exploration while watching (0 = greedy). |
-| `--delay S` | 0.08 | Seconds per step. |
-| `--seed K` | 0 | Seed of the watch env (`K + 5000`) and its exploration. |
-| `--food-radius R` | off | Place food within R walkable steps of the head, as in a food curriculum. |
-| `--relocate` | off | Re-place uneaten food near the head; only acts together with `--food-radius`. |
-| `--gui` | off | Matplotlib window instead of the terminal. |
-| `--gif OUT` | off | Save a GIF instead of showing. |
-| `--max-frames N` | 600 | GIF length cap. |
-| `--size n`, `--map M`, `--bonus R` | 7, `open`, 0 | Board for an untrained agent name (a checkpoint brings its own). |
+In the terminal viewer, space pauses, `+`/`-` change the speed, `n` skips to the next episode and `q` quits.
+Watching never changes a checkpoint.

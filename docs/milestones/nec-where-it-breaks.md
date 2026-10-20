@@ -77,7 +77,7 @@ Posted to GitHub as [milestone 1](https://github.com/felipedreis/snake_rl/milest
 | 5 | #11 | Scripted greedy baseline | agent + a score for each board | - | no |
 | 6 | #12 | Oracle-key agent (hand-made key: food offset, heading, blocked-neighbour flags) | agent + report; DQN on the same features as the fair comparison | 5 | yes |
 | 7 | #13 | Egocentric observation option | env option + tests | - | no |
-| 8 | #14 | Simplify the code base (inventory below) | smaller `env.py`, `run.py`, `nn.py`, `agents/`, tests; tag of the pre-cleanup commit; bit-for-bit check of the kept path | 3, 6, 7 | no |
+| 8 | #14 | Simplify the code base (inventory below) (**done** after the study closed; see the update at the end) | smaller `env.py`, `run.py`, `nn.py`, `agents/`, tests; tag of the pre-cleanup commit; bit-for-bit check of the kept path | 3, 6, 7 | no |
 | 9 | #15 | Board-size scaling study (DQN, MFEC, `ec_frozen`, NEC; a DQN learning-rate check) | protocol, runs, report: where it breaks and how | 2, 5, 8 | yes |
 | 10 | #16 | Complexity ramp at fixed size (open, pillars, walls, rooms) | protocol, runs, report | 9 | yes |
 | 11 | #17 | Egocentric control arm | protocol, runs, report | 7, 9 | yes |
@@ -113,3 +113,19 @@ because the files were edited after freezing; this was already the case before t
 - Speed: in a 3,000-step profile, 86-90% of the time is in the NumPy convolution code (`nn.py`: forward, backward, im2col, optimizer step); the kNN memory is 2% at that
   size and the environment under 1%.
 - Unequal tuning: NEC has had sweeps, DQN has not. Issue 4 includes a learning-rate check for DQN.
+
+## Update 2026-10-13: issue 8 done
+
+The study closed on 2026-10-12 (`docs/STUDY_SUMMARY.md`), so issues 6, 7 and 9-12 are dropped and the grid observation
+no longer had to wait for them. The cleanup (branch `cleanup/simplify`, tag `pre-cleanup` before it):
+
+- **Removed:** relative actions, the distractor channels, the small and DQN-shaped grid CNNs and their six agents,
+  `nec_refresh`, `nec_bonus`, the grid frame stack and `wall_scale`.
+- **Kept:** the grid observation with the MLP, the food curriculum and relocation, and Ms. Pac-Man (now with its own
+  `pacman-run`, `pacman-watch` and `pacman-geometry`).
+- **Renamed:** the six agents are `random`, `mfec`, `dqn`, `dqn_nstep`, `ec_frozen`, `nec`. The network follows the
+  observation, and the old `*_naturecnn` names still work.
+- **Restructured:** boards and `RunConfig` in `run.py`, an encoder factory, an optimizer base class, a shared replay
+  buffer and a shared frame stack.
+- **Verified:** golden runs recorded at `pre-cleanup` (`tests/test_golden.py`) are identical after every step:
+  episodes, evaluations, probes, diagnostics and telemetry, for every kept agent on both renders and on Ms. Pac-Man.

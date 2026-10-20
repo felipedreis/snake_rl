@@ -20,6 +20,7 @@ import argparse, json, os, pickle, time
 
 import numpy as np
 
+from snake_rl.boards import board_from_settings
 from snake_rl.geometry import _embed, memory
 from snake_rl.pacman import DIRS, MsPacman
 from snake_rl.probe import _sqdist
@@ -30,7 +31,7 @@ GHOST_NEAR = 3
 def load(path):
     with open(path, "rb") as f:
         ck = pickle.load(f)
-    return ck, dict(frame_skip=ck.get("frame_skip", 4), frame_stack=ck.get("frame_stack"))
+    return ck, board_from_settings(ck, path)
 
 
 def _targets(env):
@@ -61,8 +62,8 @@ def labels_and_good(env):
     return lab, np.array(good)
 
 
-def rollout(agent, setup, episodes, eps, seed, max_states):
-    env, rng = MsPacman(seed=seed, **setup), np.random.default_rng(seed + 1)
+def rollout(agent, board, episodes, eps, seed, max_states):
+    env, rng = board.make_env(seed), np.random.default_rng(seed + 1)
     saved, agent.rng = agent.rng, rng
     X, ep_id, labs, good = [], [], [], []
     try:
@@ -116,9 +117,9 @@ def steering(Q, good):
 
 def analyse(path, episodes=100, eps=0.05, max_states=3000, seed=777, k=10, k_action=50):
     t0 = time.time()
-    ck, setup = load(path)
+    ck, board = load(path)
     agent = ck["agent"]
-    X, ep_id, lab, good = rollout(agent, setup, episodes, eps, seed, max_states)
+    X, ep_id, lab, good = rollout(agent, board, episodes, eps, seed, max_states)
     Xf = X.astype(np.float32) / np.float32(255)
     Z, Q = _embed(agent, X)
     res = dict(checkpoint=os.path.basename(path), agent=ck["name"], seed=ck["seed"], t=ck["t"], opt=ck.get("opt"), lr=ck.get("lr"),

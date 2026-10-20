@@ -1,14 +1,15 @@
 """Watch an agent play: in the terminal (default), in a matplotlib window (--gui), or saved to a GIF (--gif).
 
 usage: snake-watch AGENT [--episodes N] [--eps E] [--delay S] [--seed K] [--food-radius R [--relocate]]
-                         [--gui | --gif OUT.gif [--max-frames N]] [--size n --map M --bonus B]
+                         [--gui | --gif OUT.gif [--max-frames N]] [--size n --map M --bonus B --render grid|pixels]
+       pacman-watch AGENT [--episodes N] [--eps E] [--delay S] [--seed K] [--gui | --gif OUT.gif] [--frame-skip K]
   AGENT is a checkpoint from `snake-run ... --save-agent` / `--save-every K` (<stem>.agent.pkl), which carries its own
   board settings, or a registered agent name (an untrained agent; give the board with --size/--map/--bonus).
   The agent acts as in evaluation (t=None: no learning, no memory bookkeeping) with ε = --eps (default 0: greedy),
   drawing from its own watch RNG, so a checkpoint can be watched any number of times without changing it.
 
 Terminal keys: space pause/resume · + / - faster/slower · n next episode · q quit.
-Side panel: the Q-value the agent assigns to each action (straight / right / left, or up / right / down / left) at this step, and the
+Side panel: the Q-value the agent assigns to each action (up / right / down / left) at this step, and the
 action it took; for NEC also the mean squared distance to the memory neighbours (how familiar the situation is).
 """
 import argparse
@@ -21,10 +22,11 @@ import time
 import numpy as np
 
 from snake_rl.agents import AGENTS, make_agent
-from snake_rl.env import ACTION_MODES, MAPS, RENDERS, Snake
+from snake_rl.boards import PacmanBoard, SnakeBoard, board_from_settings
+from snake_rl.env import MAPS, RENDERS
 from snake_rl.pacman import MsPacman
 
-ACTION_NAMES = dict(relative=("straight", "right", "left"), absolute=("up", "right", "down", "left"))
+ACTION_NAMES = ("up", "right", "down", "left")
 ARROWS = "↑→↓←"  # by env.dir: up, right, down, left
 # 256-colour palette for the terminal grid; RGB twins for the matplotlib view.
 TERM = {"empty": 236, "wall": 244, "body": 34, "head": 46, "food": 196, "bonus": 220,
@@ -35,31 +37,16 @@ RGB = {"empty": (0.12, 0.13, 0.15), "wall": (0.55, 0.58, 0.62), "body": (0.10, 0
        "scared": (0.20, 0.45, 0.90), "pac": (0.98, 0.90, 0.10)}
 
 
-def new_env(board, **kw):
-    """The watch env of a `load` board: Snake, or MsPacman when board carries game='pacman'."""
-    board = dict(board)
-    if board.pop("game", "snake") == "pacman":
-        return MsPacman(**board, **{k: v for k, v in kw.items() if k == "seed"})
-    return Snake(**board, **kw)
-
-
-def load(spec, size, map, bonus, seed, render="grid", actions="relative", game="snake", frame_skip=4):
-    """-> (agent, Snake settings, label)."""
+def load(spec, board, seed):
+    """-> (agent, board, label). spec is a checkpoint (which carries its own board; `board` is then ignored) or an agent
+    name, built untrained for `board`."""
     if os.path.exists(spec):
         with open(spec, "rb") as f:
             ck = pickle.load(f)
-        if ck.get("game") == "pacman":
-            board = dict(game="pacman", frame_skip=ck.get("frame_skip", 4), frame_stack=ck.get("frame_stack"))
-            return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
-        board = dict(size=ck["size"], map=ck["map"], bonus=ck["bonus"], distractors=ck.get("distractors", 0),
-                     render=ck.get("render", "grid"), frame_stack=ck.get("frame_stack"), wall_scale=ck.get("wall_scale", 1.0),
-                     actions=ck.get("actions", "relative"))
-        return ck["agent"], board, f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
+        return ck["agent"], board_from_settings(ck, spec), f"{ck['name']} seed {ck['seed']} @ {ck['t']:,} steps"
     if spec not in AGENTS:
         sys.exit(f"{spec!r} is neither a checkpoint file nor an agent ({', '.join(sorted(AGENTS))})")
-    board = (dict(game="pacman", frame_skip=frame_skip) if game == "pacman"
-             else dict(size=size, map=map, bonus=bonus, distractors=0, render=render, actions=actions))
-    agent = make_agent(spec, new_env(board), np.random.default_rng(seed))
+    agent = make_agent(spec, board.make_env(0), np.random.default_rng(seed))
     return agent, board, f"{spec} (untrained)"
 
 
@@ -134,14 +121,14 @@ def panel(f, env, label, eps, delay):
         q = f["q"]
         lo, hi = min(q.min(), 0.0), max(q.max(), 1e-9)
         lines.append("Q-values (what the agent expects):")
-        for i, name in enumerate(ACTION_NAMES[getattr(env, 'actions', 'absolute')]):
+        for i, name in enumerate(ACTION_NAMES):
             bar = "█" * int(round(20 * (q[i] - lo) / (hi - lo + 1e-12)))
             mark = "\x1b[1m◀ taken\x1b[0m" if i == f["a"] else ""
             lines.append(f"  {name:8s} {q[i]:+7.3f} {bar:20s} {mark}")
         if f["dist"] is not None:
             lines.append(f"  memory distance {f['dist']:.3g}")
     else:
-        lines.append(f"action: {ACTION_NAMES[getattr(env, 'actions', 'absolute')][f['a']]}")
+        lines.append(f"action: {ACTION_NAMES[f['a']]}")
     lines += ["", "\x1b[2mspace pause · +/- speed · n next · q quit\x1b[0m"]
     return lines
 
@@ -214,7 +201,7 @@ def run_matplotlib(gen, env, label, eps, delay, gif=None, max_frames=600):
     img = ax.imshow(np.zeros((env.n, env.n, 3)), interpolation="nearest")
     ax.set_xticks([]), ax.set_yticks([])
     title = ax.set_title(label, fontsize=10)
-    bars = axq.barh(ACTION_NAMES[getattr(env, 'actions', 'absolute')][::-1], [0] * env.n_actions, color="#8a8984")
+    bars = axq.barh(ACTION_NAMES[::-1], [0] * env.n_actions, color="#8a8984")
     axq.set_title("Q-values (taken action highlighted)", fontsize=10)
     axq.axvline(0, color="#8a8984", lw=0.8)
     axq.spines[["top", "right"]].set_visible(False)
@@ -253,28 +240,34 @@ def run_matplotlib(gen, env, label, eps, delay, gif=None, max_frames=600):
         plt.show()
 
 
-def cli():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+def _parser(game):
+    ap = argparse.ArgumentParser(prog=f"{game}-watch", description=__doc__.splitlines()[0])
     ap.add_argument("agent", help="checkpoint (.agent.pkl) or agent name")
     ap.add_argument("--episodes", type=int, default=5)
     ap.add_argument("--eps", type=float, default=0.0, help="exploration while watching (default 0: greedy)")
     ap.add_argument("--delay", type=float, default=0.08, help="seconds per step")
     ap.add_argument("--seed", type=int, default=0, help="seed of the watch env and its exploration")
-    ap.add_argument("--food-radius", type=int, default=None, help="place food within R steps (as in training)")
-    ap.add_argument("--relocate", action="store_true", help="re-place uneaten food near the head (needs --food-radius)")
     ap.add_argument("--gui", action="store_true", help="matplotlib window instead of the terminal")
     ap.add_argument("--gif", default=None, help="save a GIF instead of showing")
     ap.add_argument("--max-frames", type=int, default=600, help="GIF length cap")
-    ap.add_argument("--game", default="snake", choices=("snake", "pacman"), help="game of an untrained agent name")
-    ap.add_argument("--size", type=int, default=7, help="board for an untrained agent name")
-    ap.add_argument("--map", default="open", choices=MAPS)
-    ap.add_argument("--bonus", type=float, default=0.0)
-    ap.add_argument("--render", default="grid", choices=RENDERS, help="observation for an untrained agent name")
-    ap.add_argument("--actions", default="relative", choices=ACTION_MODES, help="action space for an untrained agent name")
-    a = ap.parse_args()
-    agent, board, label = load(a.agent, a.size, a.map, a.bonus, a.seed, a.render, a.actions, a.game)
-    env = new_env(board, seed=a.seed + 5000, **({} if board.get("game") == "pacman" else dict(relocate_food=a.relocate)))
-    gen = frames(agent, env, a.eps, a.episodes, np.random.default_rng(a.seed + 6000), a.food_radius)
+    if game == "snake":
+        ap.add_argument("--food-radius", type=int, default=None, help="place food within R steps (as in training)")
+        ap.add_argument("--relocate", action="store_true", help="re-place uneaten food near the head (needs --food-radius)")
+        ap.add_argument("--size", type=int, default=7, help="board for an untrained agent name")
+        ap.add_argument("--map", default="open", choices=MAPS)
+        ap.add_argument("--bonus", type=float, default=0.0)
+        ap.add_argument("--render", default="grid", choices=RENDERS, help="observation for an untrained agent name")
+    else:
+        ap.add_argument("--frame-skip", type=int, default=4, help="game ticks per agent step, for an untrained agent name")
+    return ap
+
+
+def _watch(a, board):
+    agent, board, label = load(a.agent, board, a.seed)  # a checkpoint replaces the board with its own
+    snake = isinstance(board, SnakeBoard)
+    radius = getattr(a, "food_radius", None) if snake else None
+    env = board.make_env(a.seed + 5000, relocate_food=snake and getattr(a, "relocate", False))
+    gen = frames(agent, env, a.eps, a.episodes, np.random.default_rng(a.seed + 6000), radius)
     if a.gif:
         import itertools
         run_matplotlib(itertools.islice(gen, a.max_frames), env, label, a.eps, a.delay, a.gif, a.max_frames)
@@ -282,6 +275,18 @@ def cli():
         run_matplotlib(gen, env, label, a.eps, a.delay)
     else:
         run_terminal(gen, env, label, a.eps, a.delay)
+
+
+def cli():
+    """snake-watch (a Pac-Man checkpoint is played on its own game, too)."""
+    a = _parser("snake").parse_args()
+    _watch(a, SnakeBoard(size=a.size, map=a.map, bonus=a.bonus, render=a.render))
+
+
+def pacman_cli():
+    """pacman-watch"""
+    a = _parser("pacman").parse_args()
+    _watch(a, PacmanBoard(frame_skip=a.frame_skip))
 
 
 if __name__ == "__main__":

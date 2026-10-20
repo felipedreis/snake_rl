@@ -23,6 +23,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from snake_rl.agents import canonical_stem
+
 # (key, title, log-scale y)
 PANELS = [("loss", "Loss", True), ("td_abs", "|TD error|", True), ("q", "Q(s,a) (solid) vs target (dotted)", False),
           ("grad_norm", "Gradient norm (before clipping)", True), ("clipped", "Share of steps clipped", False),
@@ -44,7 +46,7 @@ def load(path):
         series = [(t, s) for t, s in d.get("train", [])]
         stem = name[: -len(".json")]
     m = re.match(r"(.*)_s(\d+)( \(live\))?$", stem)
-    return (m.group(1), "s" + m.group(2) + (m.group(3) or "")) if m else (stem, ""), series
+    return (canonical_stem(m.group(1)), "s" + m.group(2) + (m.group(3) or "")) if m else (stem, ""), series
 
 
 def smooth(y, k):

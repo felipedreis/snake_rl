@@ -19,6 +19,6 @@ trap 'echo "$?" > "done/$T"' EXIT
 LINE=$(sed -n "${T}p" jobs.txt)
 {% if runner is defined %}echo "task $T on $(hostname): python -m {{ runner }} $LINE --out results/{{ results_dir }}"
 "$HOME/{{ remote_dir }}/.venv/bin/python" -m {{ runner }} $LINE --out "results/{{ results_dir }}"
-{% else %}echo "task $T on $(hostname): snake-run $LINE --results results/{{ results_dir }}"
-"$HOME/{{ remote_dir }}/.venv/bin/snake-run" $LINE --results "results/{{ results_dir }}"
+{% else %}echo "task $T on $(hostname): {{ command | default('snake-run') }} $LINE --results results/{{ results_dir }}"
+"$HOME/{{ remote_dir }}/.venv/bin/{{ command | default('snake-run') }}" $LINE --results "results/{{ results_dir }}"
 {% endif %}

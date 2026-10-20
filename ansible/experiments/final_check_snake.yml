@@ -1,0 +1,18 @@
+# Pre-run check for the final ladder (docs/experiments/final_ladder/PROTOCOL.md, section 8): every arm on snake for 3000 steps
+# with every measurement on, on the normal partition. Not part of the experiment.
+name: final_check_snake
+command: snake-run
+ccad_partition: normal
+ccad_qos: normal_qos
+time: "02:00:00"
+mem: 8G
+max_parallel: 6
+results_dir: _final_check
+pull_agents: true
+jobs:
+  - "random 1 3000 --size 10 --render pixels --eval-every 1000 --eval-episodes 2"
+  - "dqn 1 3000 --size 10 --render pixels --eval-every 1000 --eval-episodes 2 --probe-every 1500 --probe-far --save-every 3000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "dqn_nstep 1 3000 --size 10 --render pixels --eval-every 1000 --eval-episodes 2 --probe-every 1500 --probe-far --save-every 3000 --opt rmsprop --lr 2.5e-4 --clip-reward --agent-kw target_every=4000"
+  - "mfec 1 3000 --size 10 --render pixels --eval-every 1000 --eval-episodes 2 --probe-every 1500 --probe-far --save-every 3000"
+  - "ec_frozen 1 3000 --size 10 --render pixels --eval-every 1000 --eval-episodes 2 --probe-every 1500 --probe-far --save-every 3000 --agent-kw dnd_cap=500000"
+  - "nec 1 3000 --size 10 --render pixels --eval-every 1000 --eval-episodes 2 --probe-every 1500 --probe-far --save-every 3000 --opt rmsprop --lr 1e-4 --agent-kw dnd_cap=500000"
